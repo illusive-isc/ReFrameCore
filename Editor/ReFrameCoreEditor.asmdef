@@ -1,0 +1,40 @@
+{
+    "name": "jp.illusive_isc.ReFrameCoreEditor",
+    "rootNamespace": "jp.illusive_isc.ReFrame.Core.Editor",
+    "references": [
+        "jp.illusive_isc.ReFrameCoreRuntime",
+        "com.anatawa12.avatar-optimizer.runtime",
+        "nadena.dev.modular-avatar.core",
+        "nadena.dev.ndmf",
+        "nadena.dev.ndmf.vrchat",
+        "nadena.dev.ndmf.runtime",
+        "com.anatawa12.avatar-optimizer.internal.prefab-safe-set.editor",
+        "VRC.SDKBase",
+        "VRC.SDK3A"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "VRC.Dynamics.dll",
+        "VRC.SDK3.Dynamics.Contact.dll",
+        "VRCSDK3A.dll",
+        "VRCSDKBase.dll",
+        "System.Collections.Immutable.dll",
+        "VRC.SDK3.Dynamics.PhysBone.dll",
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.anatawa12.avatar-optimizer",
+            "expression": "",
+            "define": "AVATAR_OPTIMIZER_FOUND"
+        }
+    ],
+    "noEngineReferences": false
+}

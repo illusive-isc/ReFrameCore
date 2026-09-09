@@ -1,0 +1,34 @@
+{
+	"name": "jp.illusive-isc.reframe-core",
+	"version": "0.0.1",
+	"displayName": "ReFrameCore",
+	"description": "NDMF ベースの非破壊的なギミック削除と Quest 簡易対応 (焼き込み・揺れ物の間引き・掃除)。アバターごとの宣言パッケージ (reframe-kaguya など) から使う。",
+	"unity": "2022.3",
+	"author": {
+		"name": "illusive_isc",
+		"url": "https://illusive_isc.jp"
+	},
+	"vpmDependencies": {
+		"nadena.dev.ndmf": ">=1.6.0",
+		"nadena.dev.modular-avatar": ">=1.13.0",
+		"com.vrchat.avatars": ">=3.7.0",
+		"com.anatawa12.avatar-optimizer": ">=1.8.0",
+		"jp.lilxyzw.liltoon": ">=1.7.0"
+	},
+	"license": "MIT",
+	"url": "https://github.com/illusive-isc/ReFrameCore",
+	"dependencies": {
+		"com.unity.nuget.newtonsoft-json": "3.2.1"
+	},
+	"keywords": [
+		"VRChat",
+		"Avatar",
+		"NDMF",
+		"Quest",
+		"Optimization"
+	],
+	"documentationUrl": "https://github.com/illusive-isc/ReFrameCore#readme",
+	"changelogUrl": "https://github.com/illusive-isc/ReFrameCore/blob/main/CHANGELOG.md",
+	"licensesUrl": "https://github.com/illusive-isc/ReFrameCore/blob/main/LICENSE",
+	"repo": "https://illusive-isc.github.io/vpm-repos/index.json"
+}

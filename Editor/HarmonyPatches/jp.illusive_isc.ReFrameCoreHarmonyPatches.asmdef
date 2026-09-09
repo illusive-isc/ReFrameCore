@@ -1,0 +1,22 @@
+{
+    "name": "jp.illusive_isc.ReFrameCoreHarmonyPatches",
+    "rootNamespace": "jp.illusive_isc.ReFrame.Core.Editor.HarmonyPatches",
+    "references": [
+        "jp.illusive_isc.ReFrameCoreRuntime",
+        "jp.illusive_isc.ReFrameCoreEditor",
+        "VRC.SDKBase",
+        "VRC.Dynamics",
+        "nadena.dev.ndmf"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

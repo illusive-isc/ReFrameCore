@@ -1,0 +1,95 @@
+
+
+:root {
+    --reframe-spacing-xs: 2px;
+    --reframe-spacing-sm: 4px;
+    --reframe-spacing-md: 8px;
+    --reframe-spacing-lg: 12px;
+
+    --reframe-color-text-dim: rgba(200, 200, 200, 0.6);
+
+    --reframe-color-bundle-accent: rgb(106, 169, 255);
+    --reframe-color-bundle-bg: rgba(106, 169, 255, 0.12);
+    --reframe-color-blendtree: rgba(106, 169, 255, 0.28);
+    --reframe-color-forcedelete: rgba(217, 84, 79, 0.28);
+    --reframe-color-requires: rgba(217, 164, 65, 0.28);
+
+    --reframe-color-row-bg: transparent;
+    --reframe-color-row-bg-hover: rgba(255, 255, 255, 0.05);
+
+    --reframe-color-bar-fixed: rgba(255, 255, 255, 0.18);
+    --reframe-color-bar-used: rgba(255, 255, 255, 0.45);
+    --reframe-color-bar-cut: rgba(255, 255, 255, 0.20);
+    --reframe-color-bar-free: rgba(0, 0, 0, 0.30);
+
+    --reframe-color-row-bg-menu-deleted: rgba(255, 255, 255, 0.08);
+    --reframe-color-row-bg-gimmick-deleted: rgba(0, 0, 0, 0.15);
+    --reframe-color-cascaded-row-bg: rgba(0, 0, 0, 0.25);
+    --reframe-radius-row: 6px;
+    --reframe-radius-chip: 8px;
+    --reframe-radius-checkbox: 3px;
+
+    --reframe-color-category-text: inherit;
+    --reframe-radius-category: 4px;
+
+    --reframe-color-category-accent: var(--reframe-color-bundle-accent);
+
+    --reframe-color-category-border: rgba(255, 255, 255, 0.14);
+    --reframe-color-category-border-nested: rgba(255, 255, 255, 0.07);
+
+    --reframe-color-toggle-checked: var(--reframe-color-bundle-accent);
+    --reframe-color-field-border: rgba(255, 255, 255, 0.15);
+
+    --reframe-color-toggle-off-bg: rgba(0, 0, 0, 0.35);
+    --reframe-color-toggle-on-text: rgb(255, 255, 255);
+
+    --reframe-color-toggle-off-text: rgb(230, 227, 224);
+
+    --reframe-color-accent-text: var(--reframe-color-bundle-accent);
+
+    --reframe-color-panel-bg: rgba(255, 255, 255, 0.05);
+    --reframe-color-panel-border: rgba(255, 255, 255, 0.14);
+    --reframe-color-panel-text: inherit;
+    --reframe-color-button-bg: rgba(0, 0, 0, 0.35);
+    --reframe-color-button-text: rgb(230, 227, 224);
+    --reframe-color-button-hover-bg: var(--reframe-color-bundle-accent);
+    --reframe-color-button-hover-text: rgb(255, 255, 255);
+
+    --reframe-color-checkbox-bg: rgba(255, 255, 255, 0.12);
+    --reframe-color-checkbox-border: rgba(255, 255, 255, 0.35);
+
+    --reframe-color-checkbox-checked-bg: var(--reframe-color-toggle-checked);
+    --reframe-color-checkbox-check: rgb(255, 255, 255);
+
+    --reframe-color-divider: rgba(0, 0, 0, 0.25);
+
+    --reframe-color-locked-bg: rgb(196, 150, 68);
+    --reframe-color-locked-text: rgb(40, 30, 16);
+
+    --reframe-color-root-bg: transparent;
+    --reframe-radius-root: 0px;
+
+    --reframe-font-size-sm: 10px;
+    --reframe-font-size-md: 12px;
+}
+
+.reframe-chip {
+    padding: 1px 7px;
+    margin: 1px 3px 1px 0;
+    border-radius: var(--reframe-radius-chip);
+    font-size: var(--reframe-font-size-sm);
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+}
+
+.reframe-chip--blendtree {
+    background-color: var(--reframe-color-blendtree);
+}
+
+.reframe-chip--forcedelete {
+    background-color: var(--reframe-color-forcedelete);
+}
+
+.reframe-chip--requires {
+    background-color: var(--reframe-color-requires);
+}
