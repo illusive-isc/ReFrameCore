@@ -47,6 +47,18 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             void Render()
             {
                 box.Clear();
+
+                // TODO: 動作確認用。更新が無くても押せるように常に出している。
+                // 確認が済んだら消して、更新通知の行にあるボタンだけにする。
+                if (ReFrameVccLauncher.IsAvailable)
+                {
+                    var always = new Button(ReFrameVccLauncher.Open) { text = "VCC を開く (仮)" };
+                    always.tooltip = "VCC (または ALCOM) を開きます。動作確認用に常に表示しています。";
+                    always.style.height = 24;
+                    always.style.marginBottom = 6;
+                    box.Add(always);
+                }
+
                 foreach (var package in packages)
                 {
                     if (!States.TryGetValue(package.name, out var state))
@@ -69,6 +81,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     update.style.height = 24;
                     update.style.flexGrow = 1;
                     row.Add(update);
+                    if (ReFrameVccLauncher.IsAvailable)
+                    {
+                        var openVcc = new Button(ReFrameVccLauncher.Open) { text = "VCC を開く" };
+                        openVcc.tooltip =
+                            "VCC (または ALCOM) を開きます。更新はそちらの Manage Packages で行ってください。";
+                        openVcc.style.height = 24;
+                        row.Add(openVcc);
+                    }
                     var later = new Button(() =>
                     {
 
@@ -226,15 +246,21 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var isGitCopy = Directory.Exists(Path.Combine(folder, ".git"));
             if (!insidePackages || isGitCopy || string.IsNullOrEmpty(state.ZipUrl))
             {
-                EditorUtility.DisplayDialog(
-                    "ReFrame の更新",
+                var message =
                     state.DisplayName + " " + state.Latest + " が公開されていますが、このプロジェクトのコピーは"
-                        + (isGitCopy ? " git の作業コピー" : insidePackages ? " zip の配布が無い版" : " Packages の外にある")
-                        + "ので、ここからは入れ替えません。"
-                        + (char)10
-                        + "VCC (または git) で更新してください。",
-                    "OK"
-                );
+                    + (isGitCopy ? " git の作業コピー" : insidePackages ? " zip の配布が無い版" : " Packages の外にある")
+                    + "ので、ここからは入れ替えません。"
+                    + (char)10
+                    + "VCC (または git) で更新してください。";
+                if (ReFrameVccLauncher.IsAvailable && !isGitCopy)
+                {
+                    if (EditorUtility.DisplayDialog("ReFrame の更新", message, "VCC を開く", "OK"))
+                        ReFrameVccLauncher.Open();
+                }
+                else
+                {
+                    EditorUtility.DisplayDialog("ReFrame の更新", message, "OK");
+                }
                 return;
             }
 
