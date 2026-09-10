@@ -19,28 +19,25 @@ jobs:
 
       # Checkout Local Repository
       - name: Checkout
-        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Get the Package version based on the package.json file
-      - name: Get Version
-        id: version
-        uses: zoexx/github-action-json-file-properties@b9f36ce6ee6fe2680cd3c32b2c62e22eade7e590
-        with:
-          file_path: "${{ env.packagePath }}/package.json"
-          prop_path: "version"
-
-      - name: Get Package Name
-        id: name
-        uses: zoexx/github-action-json-file-properties@b9f36ce6ee6fe2680cd3c32b2c62e22eade7e590
-        with:
-          file_path: "${{ env.packagePath }}/package.json"
-          prop_path: "name"
+      # package.json から名前とバージョンを読む (jq は runner に最初から入っている)
+      - name: Read package.json
+        id: pkg
+        run: |
+          name=$(jq -r .name "${{ env.packagePath }}/package.json")
+          version=$(jq -r .version "${{ env.packagePath }}/package.json")
+          if [ -z "$name" ] || [ "$name" = "null" ]; then echo "::error::package.json に name がありません"; exit 1; fi
+          if [ -z "$version" ] || [ "$version" = "null" ]; then echo "::error::package.json に version がありません"; exit 1; fi
+          echo "name=$name" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       - name: Set Environment Variables
         run: |
-          echo "zipFile=${{ steps.name.outputs.value }}-${{ steps.version.outputs.value }}".zip >> $GITHUB_ENV
-          echo "unityPackage=${{ steps.name.outputs.value }}-${{ steps.version.outputs.value }}.unitypackage" >> $GITHUB_ENV
-          echo "version=${{ steps.version.outputs.value }}" >> $GITHUB_ENV
+          echo "zipFile=${{ steps.pkg.outputs.name }}-${{ steps.pkg.outputs.version }}.zip" >> $GITHUB_ENV
+          echo "unityPackage=${{ steps.pkg.outputs.name }}-${{ steps.pkg.outputs.version }}.unitypackage" >> $GITHUB_ENV
+          echo "version=${{ steps.pkg.outputs.version }}" >> $GITHUB_ENV
+          echo "packageName=${{ steps.pkg.outputs.name }}" >> $GITHUB_ENV
 
       # package.json の中身を配布前に確認する (バージョンの形式・配布 URL の有無)
       - name: Validate package.json
@@ -78,14 +75,14 @@ jobs:
       - name: Create Tag
         id: tag_version
         if: github.event_name == 'workflow_dispatch'
-        uses: rickstaa/action-create-tag@88dbf7ff6fe2405f8e8f6c6fdfd78829bc631f83
+        uses: rickstaa/action-create-tag@a1c7777fcb2fee4f19b0f283ba888afa11678b72 # v1.7.2
         with:
           tag: "${{ env.version }}"
           beta: ${{ github.ref == 'refs/heads/dev' }}
 
       # Publish the Release to GitHub (zip / package.json / SHA256 を添付)
       - name: Make Release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             ${{ env.zipFile }}
@@ -94,7 +91,7 @@ jobs:
           tag_name: ${{ env.version }}
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
           body: |
-            ${{ steps.name.outputs.value }} ${{ env.version }}
+            ${{ env.packageName }} ${{ env.version }}
 
             zip SHA256: `${{ env.zipSHA256 }}`
 
