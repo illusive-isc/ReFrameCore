@@ -97,3 +97,16 @@ jobs:
             ${{ steps.name.outputs.value }} ${{ env.version }}
 
             zip SHA256: `${{ env.zipSHA256 }}`
+
+      # 公開サイト (illusive-isc/ReFrame) に再ビルドを頼み、VPM の一覧に今回の版を載せる。
+      # Secrets の SITE_DISPATCH_TOKEN は ReFrame リポジトリへの contents:write を持つ Fine-grained PAT。
+      - name: Notify site
+        env:
+          TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "::warning::SITE_DISPATCH_TOKEN が無いのでサイトの再ビルドは頼みません。"; exit 0; fi
+          curl -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/illusive-isc/ReFrame/dispatches \
+            -d '{"event_type":"package-released","client_payload":{"repo":"${{ github.repository }}","version":"${{ env.version }}"}}'
