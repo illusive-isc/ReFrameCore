@@ -29,6 +29,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             public DateTime CheckedAt;
         }
 
+        /// <summary>取り込むだけで最新版が入る unitypackage を配っているページ。</summary>
+        const string InstallPageUrl = "https://reframe.illusive-isc.jp/install/";
+
+        static void OpenInstallPage() => UnityEngine.Application.OpenURL(InstallPageUrl);
+
         static readonly Dictionary<string, State> States = new Dictionary<string, State>();
         static readonly TimeSpan CacheFor = TimeSpan.FromHours(1);
 
@@ -59,6 +64,13 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     box.Add(always);
                 }
 
+                // TODO: 動作確認用。確認が済んだら消す。
+                var alwaysPage = new Button(OpenInstallPage) { text = "更新ページを開く (仮)" };
+                alwaysPage.tooltip = InstallPageUrl;
+                alwaysPage.style.height = 24;
+                alwaysPage.style.marginBottom = 6;
+                box.Add(alwaysPage);
+
                 foreach (var package in packages)
                 {
                     if (!States.TryGetValue(package.name, out var state))
@@ -81,6 +93,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     update.style.height = 24;
                     update.style.flexGrow = 1;
                     row.Add(update);
+                    var openPage = new Button(OpenInstallPage) { text = "更新ページを開く" };
+                    openPage.tooltip =
+                        "ブラウザで更新ページを開きます。ファイルを Unity に取り込むだけで最新版に入れ替わります。";
+                    openPage.style.height = 24;
+                    row.Add(openPage);
                     if (ReFrameVccLauncher.IsAvailable)
                     {
                         var openVcc = new Button(ReFrameVccLauncher.Open) { text = "VCC を開く" };
