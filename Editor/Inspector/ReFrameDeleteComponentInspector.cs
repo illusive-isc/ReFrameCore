@@ -70,6 +70,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>代表に道連れで消えるときも値を選ばせるか (ValueMatters)。</summary>
             public bool BundleValueMatters;
 
+            /// <summary>[ReFrameLinkedWith] で Enabled を揃える相手のパラメーター名。</summary>
+            public readonly List<string> LinkedParameters = new();
+
             /// <summary>[ReFrameDeleteObject] の実体に Quest 非対応コンポーネントが含まれていて、 「Quest 対応」を ON にすると Enabled に関わらず強制削除になる行。</summary>
             public bool QuestForcedCandidate;
 
@@ -1773,6 +1776,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var bundle = field.GetCustomAttribute<ReFrameBundleMemberAttribute>(true);
                 entry.BundleRepresentative = bundle?.RepresentativeParameterName;
                 entry.BundleValueMatters = bundle?.ValueMatters ?? false;
+                foreach (var link in field.GetCustomAttributes<ReFrameLinkedWithAttribute>(true))
+                    entry.LinkedParameters.Add(link.ParameterName);
 
                 entry.QuestForcedCandidate = component.HasQuestUnsupportedTarget(field);
 
@@ -2032,6 +2037,24 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return box;
         }
 
+        /// <summary>[ReFrameLinkedWith] の相手の Enabled を同じ値に揃える。</summary>
+        void SyncLinkedEntries(EntryInfo entry, bool enabled)
+        {
+            if (entry.LinkedParameters.Count == 0 || target is not ReFrameDeleteComponent component)
+                return;
+            foreach (var name in entry.LinkedParameters)
+            {
+                var partner = component.FindFieldByParameterName(name);
+                if (partner == null || partner == entry.Field)
+                    continue;
+                var partnerEnabled = serializedObject
+                    .FindProperty(partner.Name)
+                    ?.FindPropertyRelative(nameof(ReFrameDeleteEntry.Enabled));
+                if (partnerEnabled != null)
+                    partnerEnabled.boolValue = enabled;
+            }
+        }
+
         VisualElement BuildEntryElement(EntryInfo entry)
         {
             var container = new VisualElement();
@@ -2231,6 +2254,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 serializedObject.Update();
 
                 enabledProp.boolValue = !enabledProp.boolValue;
+                SyncLinkedEntries(entry, enabledProp.boolValue);
                 enabledProp.serializedObject.ApplyModifiedProperties();
                 Sync();
 

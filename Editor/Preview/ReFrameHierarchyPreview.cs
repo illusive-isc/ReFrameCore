@@ -72,6 +72,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (forced.IsEmpty)
                 yield break;
 
+            var mergeMap = BuildMergeArmatureMap(context, avatarRoot);
             var renderers = context.GetComponentsInChildren<Renderer>(avatarRoot, true);
             foreach (var renderer in renderers)
             {
@@ -148,12 +149,18 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     var builder = ImmutableDictionary.CreateBuilder<Transform, BoneOverride>();
                     foreach (var bone in boneSmr.bones)
                     {
-                        if (bone == null || !forced.Transforms.TryGetValue(bone, out var boneForced))
-                            continue;
-                        context.Observe(bone);
-                        var (bonePos, boneRot, boneScale) = ReFrameBakedVisibilityResolver
-                            .ResolveFinalLocalTransform(boneForced, bone);
-                        builder[bone] = new BoneOverride(bonePos, boneRot, boneScale);
+                        for (var cursor = bone; cursor != null && !RuntimeUtil.IsAvatarRoot(cursor); cursor = cursor.parent)
+                        {
+                            if (builder.ContainsKey(cursor))
+                                break;
+                            var boneForced = ResolveForcedBone(cursor, forced, mergeMap);
+                            if (boneForced == null)
+                                continue;
+                            context.Observe(cursor);
+                            var (bonePos, boneRot, boneScale) = ReFrameBakedVisibilityResolver
+                                .ResolveFinalLocalTransform(boneForced, cursor);
+                            builder[cursor] = new BoneOverride(bonePos, boneRot, boneScale);
+                        }
                     }
                     if (builder.Count > 0)
                         boneOverrides = builder.ToImmutable();
@@ -181,6 +188,37 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
                 yield return RenderGroup.For(renderer).WithData(data, (a, b) => a.Equals(b));
             }
+        }
+
+        /// <summary>MA Merge Armature の統合元ボーン → 統合先ボーンの対応表。</summary>
+        static Dictionary<Transform, Transform> BuildMergeArmatureMap(ComputeContext context, GameObject avatarRoot)
+        {
+            var map = new Dictionary<Transform, Transform>();
+            foreach (var merge in context.GetComponentsInChildren<ModularAvatarMergeArmature>(avatarRoot, true))
+            {
+                context.Observe(merge, m => (m.mergeTargetObject, m.prefix, m.suffix));
+                var pairs = merge.GetBonesMapping();
+                if (pairs == null)
+                    continue;
+                foreach (var (baseBone, mergeBone) in pairs)
+                    map[mergeBone] = baseBone;
+            }
+            return map;
+        }
+
+        /// <summary>ボーンの固定値を引く。統合元の複製ボーンは統合先へ辿り直して引く。</summary>
+        static ReFrameBakedVisibilityResolver.ForcedTransform ResolveForcedBone(
+            Transform bone,
+            ForcedStates forced,
+            Dictionary<Transform, Transform> mergeMap
+        )
+        {
+            for (var cursor = bone; cursor != null; cursor = mergeMap.TryGetValue(cursor, out var next) ? next : null)
+            {
+                if (forced.Transforms.TryGetValue(cursor, out var boneForced))
+                    return boneForced;
+            }
+            return null;
         }
 
         /// <summary>アバター配下のすべての ReFrameDeleteComponent の Enabled なエントリを集め、それぞれが FX / layerType == FX の MA Merge Animator 上で解決する表示状態を集約する。</summary>

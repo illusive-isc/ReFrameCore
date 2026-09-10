@@ -535,7 +535,37 @@ namespace jp.illusive_isc.ReFrame.Core
         ) =>
             entry.Enabled
             || IsCascadedFromBundleRepresentative(field, deletingRepresentativeParams)
-            || IsQuestForcedDeleting(field);
+            || IsQuestForcedDeleting(field)
+            || IsLinkedPartnerDeleting(field);
+
+        /// <summary>[ReFrameLinkedWith] で結んだ相手の行が (自身の Enabled か Quest 強制で) 削除中なら true。</summary>
+        bool IsLinkedPartnerDeleting(FieldInfo field)
+        {
+            foreach (var link in field.GetCustomAttributes<ReFrameLinkedWithAttribute>(true))
+            {
+                var partner = FindFieldByParameterName(link.ParameterName);
+                if (partner == null || partner == field)
+                    continue;
+                var partnerEntry = (ReFrameDeleteEntry)partner.GetValue(this);
+                if (partnerEntry.Enabled || IsQuestForcedDeleting(partner))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>[ReFrameDelete(parameterName)] を持つ ReFrameDeleteEntry 型フィールドを返す。</summary>
+        public FieldInfo FindFieldByParameterName(string parameterName)
+        {
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                foreach (var attr in field.GetCustomAttributes<ReFrameDeleteAttribute>(true))
+                    if (attr.ParameterName == parameterName)
+                        return field;
+            }
+            return null;
+        }
 
         /// <summary>[ReFrameBundleMember(repName)] を持つフィールドを、Inspector 上の見た目だけでなく ビルド時の削除処理自体でも代表と道連れにするための判定材料を集める。</summary>
         HashSet<string> CollectDeletingRepresentativeParameterNames()

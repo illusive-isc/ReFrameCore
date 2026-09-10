@@ -88,6 +88,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             ReFrameAnimatorUtil.MaterialWriter = CreateMaterialWriter(context);
 
+            var localTransformsBeforeBake = SnapshotLocalTransforms(context.AvatarRootObject.transform);
+
             var deletedNames = new HashSet<string>();
 
             if (allDeleteTargets.Count == 0)
@@ -97,6 +99,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 );
 
                 ApplyAlwaysTreeOverrides(context, components);
+                FollowMergeArmatureBones(context, localTransformsBeforeBake);
                 ApplyBlendShapes(context, components);
 
                 if (components.Any(c => c != null && c.EnumerateMenuRemovals().Any()))
@@ -215,6 +218,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         "[ReFrameCore] ReFrameDeletePass: all enabled entries are MenuOnly; skipping AnimatorController processing."
                     );
                 }
+                FollowMergeArmatureBones(context, localTransformsBeforeBake);
 
                 var maxParticleTargets = components
                     .SelectMany(c => c.EnumerateMaxParticleTargets())
@@ -1160,6 +1164,46 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 renderer.sharedMaterials = materials;
                 return clone;
             };
+        }
+
+        static Dictionary<Transform, (Vector3 Position, Quaternion Rotation, Vector3 Scale)> SnapshotLocalTransforms(Transform root)
+        {
+            var snapshot = new Dictionary<Transform, (Vector3, Quaternion, Vector3)>();
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                snapshot[t] = (t.localPosition, t.localRotation, t.localScale);
+            return snapshot;
+        }
+
+        /// <summary>焼き込みで動いた統合先のボーンに、MA Merge Armature の統合元が持つ同名の複製ボーンを合わせる (Merge Armature はワールド位置を保って付け替えるので、放っておくと統合元だけが元の場所に残る)。</summary>
+        static void FollowMergeArmatureBones(
+            BuildContext context,
+            Dictionary<Transform, (Vector3 Position, Quaternion Rotation, Vector3 Scale)> before
+        )
+        {
+            var moved = 0;
+            foreach (var merge in context.AvatarRootObject.GetComponentsInChildren<ModularAvatarMergeArmature>(true))
+            {
+                var pairs = merge.GetBonesMapping();
+                if (pairs == null)
+                    continue;
+                foreach (var (baseBone, mergeBone) in pairs)
+                {
+                    if (baseBone == null || mergeBone == null || !before.TryGetValue(baseBone, out var old))
+                        continue;
+                    if (
+                        baseBone.localPosition == old.Position
+                        && baseBone.localRotation == old.Rotation
+                        && baseBone.localScale == old.Scale
+                    )
+                        continue;
+                    mergeBone.localPosition = baseBone.localPosition;
+                    mergeBone.localRotation = baseBone.localRotation;
+                    mergeBone.localScale = baseBone.localScale;
+                    moved++;
+                }
+            }
+            if (moved > 0)
+                Debug.LogWarning($"[ReFrameCore] ReFrameDeletePass: merge armature bones followed -> {moved}");
         }
 
         /// <summary>削除対象が 1 つも無いビルドで、[ReFrameBlendTreeOverride(Always = true)] だけを適用する。</summary>

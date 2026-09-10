@@ -440,7 +440,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             Dictionary<Transform, bool> bakedActiveStates,
             IReadOnlyDictionary<string, float> allValues,
             IReadOnlyDictionary<string, float> treeOverrides,
-            ref bool changed
+            ref bool changed,
+            bool conditional = false
         )
         {
             if (motion is not VirtualBlendTree bt)
@@ -468,7 +469,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         bakedActiveStates,
                         allValues,
                 treeOverrides,
-                        ref changed
+                        ref changed,
+                        conditional
                     );
                 }
                 if (bt.BlendParameter == param || bt.BlendParameterY == param)
@@ -523,7 +525,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         bakedActiveStates,
                         allValues,
                 treeOverrides,
-                        ref changed
+                        ref changed,
+                        conditional
                     );
                 }
 
@@ -537,6 +540,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
 
             var children = bt.Children;
+            var childConditional = conditional || !IsPassThroughTree(bt);
             var list = new List<VirtualBlendTree.VirtualChildMotion>(children.Count);
             var localChanged = false;
             foreach (var child in children)
@@ -552,7 +556,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     bakedActiveStates,
                     allValues,
                 treeOverrides,
-                    ref changed
+                    ref changed,
+                    childConditional
                 );
                 if (newMotion == null)
                 {
@@ -586,7 +591,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             Dictionary<Transform, bool> bakedActiveStates,
             IReadOnlyDictionary<string, float> allValues,
             IReadOnlyDictionary<string, float> treeOverrides,
-            ref bool changed
+            ref bool changed,
+            bool conditional
         )
         {
             var matchedChild = FindSimple1DChild(bt.Children, matchValue, matchType);
@@ -595,6 +601,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var child = matchedChild;
                 if (child.Motion is VirtualClip clip)
                 {
+                    if (conditional)
+                        return clip;
                     BakeClip(clip, bakeRoot, bakedActiveStates);
                     return null;
                 }
@@ -608,7 +616,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     bakedActiveStates,
                     allValues,
                 treeOverrides,
-                    ref changed
+                    ref changed,
+                    conditional
                 );
             }
 
@@ -649,7 +658,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     var mergedObjects = ReFrameBlendUtil.Pool.RentObjects();
                     ReFrameBlendUtil.MergeInterpolated(loFloats, hiFloats, t, mergedFloats);
                     ReFrameBlendUtil.MergeDominant(loObjects, hiObjects, t, mergedObjects);
-                    BakeBlendedState(mergedFloats, mergedObjects, bakeRoot, bakedActiveStates);
+                    VirtualMotion replacement = null;
+                    if (conditional)
+                        replacement = CreateConstantClip($"{bt.Name} ({bt.BlendParameter}={matchValue})", mergedFloats, mergedObjects);
+                    else
+                        BakeBlendedState(mergedFloats, mergedObjects, bakeRoot, bakedActiveStates);
                     ReFrameBlendUtil.Pool.ReturnFloats(loFloats);
                     ReFrameBlendUtil.Pool.ReturnObjects(loObjects);
                     ReFrameBlendUtil.Pool.ReturnFloats(hiFloats);
@@ -657,7 +670,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     ReFrameBlendUtil.Pool.ReturnFloats(mergedFloats);
                     ReFrameBlendUtil.Pool.ReturnObjects(mergedObjects);
                     changed = true;
-                    return null;
+                    return replacement;
                 }
                 ReFrameBlendUtil.Pool.ReturnFloats(loFloats);
                 ReFrameBlendUtil.Pool.ReturnObjects(loObjects);
@@ -665,6 +678,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 ReFrameBlendUtil.Pool.ReturnObjects(hiObjects);
             }
 
+            if (conditional)
+            {
+                Debug.LogWarning(
+                    $"[ReFrameCore] Value {matchValue} does not match any threshold of blend tree '{bt.Name}' "
+                        + $"('{bt.BlendParameter}') and it sits under an unfixed selector; leaving it as is."
+                );
+                return bt;
+            }
             Debug.LogWarning(
                 $"[ReFrameCore] Value {matchValue} does not match any threshold of blend tree '{bt.Name}' "
                     + $"('{bt.BlendParameter}'). The branch was removed without baking a state."
@@ -866,6 +887,24 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return false;
         }
 
+        /// <summary>合成した float/Object の値を、定数カーブだけの 1 フレームのクリップにする (固定していない選択ツリーの下ではシーンへ焼けないので、枝をこれで置き換える)。</summary>
+        static VirtualClip CreateConstantClip(
+            string name,
+            Dictionary<EditorCurveBinding, float> floats,
+            Dictionary<EditorCurveBinding, Object> objects
+        )
+        {
+            var clip = VirtualClip.Create(name);
+            foreach (var kv in floats)
+                clip.SetFloatCurve(kv.Key, AnimationCurve.Constant(0f, 0f, kv.Value));
+            foreach (var kv in objects)
+                clip.SetObjectCurve(
+                    kv.Key,
+                    new[] { new ObjectReferenceKeyframe { time = 0f, value = kv.Value } }
+                );
+            return clip;
+        }
+
         /// <summary>無段階ブレンドで合成した float/Object カーブの値を bakeRoot 上のオブジェクトへ直接反映する。</summary>
         static void BakeBlendedState(
             Dictionary<EditorCurveBinding, float> floats,
@@ -893,7 +932,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             Dictionary<Transform, bool> bakedActiveStates,
             IReadOnlyDictionary<string, float> allValues,
             IReadOnlyDictionary<string, float> treeOverrides,
-            ref bool changed
+            ref bool changed,
+            bool conditional
         )
         {
             const float epsilon = 1e-4f;
@@ -906,6 +946,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     continue;
                 if (child.Motion is VirtualClip clip)
                 {
+                    if (conditional)
+                        return clip;
                     BakeClip(clip, bakeRoot, bakedActiveStates);
                     return null;
                 }
@@ -919,7 +961,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     bakedActiveStates,
                     allValues,
                 treeOverrides,
-                    ref changed
+                    ref changed,
+                    conditional
                 );
             }
 
@@ -938,16 +981,28 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 blendedFloats,
                 blendedObjects
             );
-            if (blended)
+            VirtualMotion blendedReplacement = null;
+            if (blended && conditional)
+                blendedReplacement = CreateConstantClip($"{bt.Name} ({x}, {y})", blendedFloats, blendedObjects);
+            else if (blended)
                 BakeBlendedState(blendedFloats, blendedObjects, bakeRoot, bakedActiveStates);
             ReFrameBlendUtil.Pool.ReturnFloats(blendedFloats);
             ReFrameBlendUtil.Pool.ReturnObjects(blendedObjects);
             if (blended)
             {
                 changed = true;
-                return null;
+                return blendedReplacement;
             }
 
+            if (conditional)
+            {
+                Debug.LogWarning(
+                    $"[ReFrameCore] Position ({x}, {y}) does not match any child of blend tree '{bt.Name}' "
+                        + $"('{bt.BlendParameter}'/'{bt.BlendParameterY}') and it sits under an unfixed selector; "
+                        + "leaving it as is."
+                );
+                return bt;
+            }
             Debug.LogWarning(
                 $"[ReFrameCore] Position ({x}, {y}) does not match any child of blend tree '{bt.Name}' "
                     + $"('{bt.BlendParameter}'/'{bt.BlendParameterY}'). The branch was removed without "
@@ -1952,6 +2007,18 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 changed |= StripDanglingStateReferences(child.StateMachine, removedStates);
 
             return changed;
+        }
+
+        /// <summary>選ばれなかった子も常に再生されるツリーか (Simple1D で全子の閾値が同じ = 常時 ON のコンテナ)。</summary>
+        static bool IsPassThroughTree(VirtualBlendTree bt)
+        {
+            if (bt.BlendType != BlendTreeType.Simple1D || bt.Children.Count == 0)
+                return false;
+            var first = bt.Children[0].Threshold;
+            foreach (var child in bt.Children)
+                if (!Mathf.Approximately(child.Threshold, first))
+                    return false;
+            return true;
         }
 
         static bool Is2DBlendType(BlendTreeType type) =>
