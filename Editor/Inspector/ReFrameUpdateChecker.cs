@@ -53,24 +53,6 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
                 box.Clear();
 
-                // TODO: 動作確認用。更新が無くても押せるように常に出している。
-                // 確認が済んだら消して、更新通知の行にあるボタンだけにする。
-                if (ReFrameVccLauncher.IsAvailable)
-                {
-                    var always = new Button(ReFrameVccLauncher.Open) { text = "VCC を開く (仮)" };
-                    always.tooltip = "VCC (または ALCOM) を開きます。動作確認用に常に表示しています。";
-                    always.style.height = 24;
-                    always.style.marginBottom = 6;
-                    box.Add(always);
-                }
-
-                // TODO: 動作確認用。確認が済んだら消す。
-                var alwaysPage = new Button(OpenInstallPage) { text = "更新ページを開く (仮)" };
-                alwaysPage.tooltip = InstallPageUrl;
-                alwaysPage.style.height = 24;
-                alwaysPage.style.marginBottom = 6;
-                box.Add(alwaysPage);
-
                 foreach (var package in packages)
                 {
                     if (!States.TryGetValue(package.name, out var state))
