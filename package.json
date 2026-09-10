@@ -1,6 +1,6 @@
 {
 	"name": "jp.illusive-isc.reframe-core",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"displayName": "ReFrameCore",
 	"description": "NDMF ベースの非破壊的なギミック削除と Quest 簡易対応 (焼き込み・揺れ物の間引き・掃除)。アバターごとの宣言パッケージ (reframe-kaguya など) から使う。",
 	"unity": "2022.3",

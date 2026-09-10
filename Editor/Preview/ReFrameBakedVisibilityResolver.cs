@@ -539,7 +539,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     hasValue = allValues.TryGetValue(bt.blendParameter, out raw);
                 if (hasValue)
                 {
-                    var def = controller.parameters.FirstOrDefault(p => p.name == bt.blendParameter);
+                    var def = FindParameter(controller, bt.blendParameter);
                     if (def != null)
                     {
                         var matchValue = NormalizeValue(raw, def.type);
@@ -624,13 +624,45 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         > _clipCache;
 
         /// <summary>ResolveForcedActiveStates/CollectDesiredHidden のように、1 回の解決パスの中で ResolveActiveStates を複数のパラメーターについて連続して呼ぶ呼び出し元は、ループの前後で これと EndResolveScope を呼んでクリップキャッシュを有効にすること (try/finally 推奨)。</summary>
-        public static void BeginResolveScope() =>
+        public static void BeginResolveScope()
+        {
             _clipCache = new Dictionary<
                 AnimationClip,
                 (Dictionary<EditorCurveBinding, float> Floats, Dictionary<EditorCurveBinding, Object> Objects)
             >();
+            _parameterCache = new Dictionary<AnimatorController, Dictionary<string, AnimatorControllerParameter>>();
+        }
 
-        public static void EndResolveScope() => _clipCache = null;
+        /// <summary>AnimatorController.parameters は読むたびにネイティブ側から配列を作り直すので、
+        /// BlendTree ごとに引くと重い。1 回の解決パスの中では名前引きの表にして使い回す。</summary>
+        static Dictionary<AnimatorController, Dictionary<string, AnimatorControllerParameter>> _parameterCache;
+
+        /// <summary>コントローラーのパラメーターを名前で引く。無ければ null。</summary>
+        static AnimatorControllerParameter FindParameter(AnimatorController controller, string name)
+        {
+            if (controller == null || string.IsNullOrEmpty(name))
+                return null;
+
+            if (_parameterCache == null)
+                return controller.parameters.FirstOrDefault(p => p.name == name);
+
+            if (!_parameterCache.TryGetValue(controller, out var table))
+            {
+                table = new Dictionary<string, AnimatorControllerParameter>();
+                foreach (var parameter in controller.parameters)
+                    if (parameter != null && !string.IsNullOrEmpty(parameter.name))
+                        table[parameter.name] = parameter;
+                _parameterCache[controller] = table;
+            }
+
+            return table.TryGetValue(name, out var found) ? found : null;
+        }
+
+        public static void EndResolveScope()
+        {
+            _clipCache = null;
+            _parameterCache = null;
+        }
 
         static void ExtractClipBindingsCached(
             AnimationClip clip,
@@ -931,7 +963,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
                 if (!allValues.TryGetValue(nested.blendParameter, out var raw))
                     return false;
-                var def = controller.parameters.FirstOrDefault(p => p.name == nested.blendParameter);
+                var def = FindParameter(controller, nested.blendParameter);
                 if (def == null)
                     return false;
                 var matchValue = NormalizeValue(raw, def.type);

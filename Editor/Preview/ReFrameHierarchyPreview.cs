@@ -19,6 +19,40 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
     {
         public bool CanEnableRenderers => true;
 
+        /// <summary>NDMF のプレビュー切り替えメニューに出す項目。重いときに利用者が切れるようにする。</summary>
+        static readonly TogglablePreviewNode EnableNode = TogglablePreviewNode.Create(
+            () => "ReFrame",
+            qualifiedName: "jp.illusive-isc.reframe/DeletePreview",
+            true
+        );
+
+        public IEnumerable<TogglablePreviewNode> GetPreviewControlNodes()
+        {
+            yield return EnableNode;
+        }
+
+        public bool IsEnabled(ComputeContext context) => context.Observe(EnableNode.IsEnabled);
+
+        /// <summary>FX を歩いて「何がどう固定されるか」を出す処理は重いので、アバターごとに覚えておく。
+        /// 監視している値が変わったときだけ作り直される (Modular Avatar の ReactiveObjectAnalyzer と同じ作り)。</summary>
+        static PropCache<GameObject, ForcedStates> _forcedStatesCache;
+
+        static ForcedStates CachedForcedStates(ComputeContext context, GameObject avatarRoot)
+        {
+            _forcedStatesCache ??= new PropCache<GameObject, ForcedStates>(
+                "ReFrameForcedStates",
+                (ctx, root) =>
+                {
+                    if (!ctx.Observe(root, o => o.activeInHierarchy))
+                        return new ForcedStates();
+                    return root.TryGetComponent<VRCAvatarDescriptor>(out var descriptor)
+                        ? ResolveForcedActiveStates(ctx, descriptor)
+                        : new ForcedStates();
+                }
+            );
+            return _forcedStatesCache.Get(context, avatarRoot);
+        }
+
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
         {
             return context.GetAvatarRoots().SelectMany(av => RootsForAvatar(context, av)).ToImmutableList();
@@ -31,7 +65,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (!avatarRoot.TryGetComponent<VRCAvatarDescriptor>(out var descriptor))
                 yield break;
 
-            var forced = ResolveForcedActiveStates(context, descriptor);
+            // Quest 変換プレビューの使い回しを、このアバターの分だけ作り直させる
+            ReFrameQuestMaterialPreview.ResetScope();
+
+            var forced = CachedForcedStates(context, avatarRoot);
             if (forced.IsEmpty)
                 yield break;
 
@@ -147,7 +184,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>アバター配下のすべての ReFrameDeleteComponent の Enabled なエントリを集め、それぞれが FX / layerType == FX の MA Merge Animator 上で解決する表示状態を集約する。</summary>
-        ForcedStates ResolveForcedActiveStates(ComputeContext context, VRCAvatarDescriptor descriptor)
+        static ForcedStates ResolveForcedActiveStates(ComputeContext context, VRCAvatarDescriptor descriptor)
         {
             var result = new ForcedStates();
             var controllers = CollectFxControllers(context, descriptor);

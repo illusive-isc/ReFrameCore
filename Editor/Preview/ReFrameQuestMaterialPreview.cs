@@ -39,6 +39,29 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             _hidden = null;
         }
 
+        static Shader _toonLit;
+        static Transform _preparedFor;
+
+        /// <summary>ToonLit シェーダーの検索は毎回やると重いので覚えておく。</summary>
+        static Shader CachedToonLit()
+        {
+            if (_toonLit == null)
+                _toonLit = Shader.Find(ReFrameQuestMaterialConverter.ToonLitShaderName);
+            return _toonLit;
+        }
+
+        /// <summary>同じアバターについて 1 回だけ設定を読み直す。</summary>
+        static void PrepareSettingsOnce(Transform root)
+        {
+            if (_preparedFor == root)
+                return;
+            ReFrameQuestMaterialConverter.PrepareSettings(root);
+            _preparedFor = root;
+        }
+
+        /// <summary>解決パスの区切り。次の Apply で設定を読み直させる。</summary>
+        internal static void ResetScope() => _preparedFor = null;
+
         /// <summary>この Renderer のマテリアル差し替えに、Quest 変換後のものを足して返す。</summary>
         internal static ImmutableDictionary<int, Material> Apply(
             ComputeContext context,
@@ -60,11 +83,13 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (materials == null || materials.Length == 0)
                 return overrides;
 
-            var toonLit = Shader.Find(ReFrameQuestMaterialConverter.ToonLitShaderName);
+            // Shader.Find と PrepareSettings (中で階層を 3 回走査する) は Renderer ごとに
+            // やり直す必要が無いので、1 回の解決パスの中では使い回す。
+            var toonLit = CachedToonLit();
             if (toonLit == null)
                 return overrides;
 
-            ReFrameQuestMaterialConverter.PrepareSettings(descriptor.transform);
+            PrepareSettingsOnce(descriptor.transform);
 
             var subMeshes = ReFrameQuestMaterialConverter.SubMeshCountOf(renderer);
 
