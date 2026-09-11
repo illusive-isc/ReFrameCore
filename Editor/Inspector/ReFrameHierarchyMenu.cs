@@ -10,8 +10,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
     /// <summary>Hierarchy の右クリック (GameObject メニュー) から、アバターに ReFrame の子オブジェクトを足す。</summary>
     internal static class ReFrameHierarchyMenu
     {
-        const string AutoItem = "GameObject/ReFrame/このアバターに ReFrame を追加";
-        const string PickItem = "GameObject/ReFrame/種類を選んで ReFrame を追加...";
+        const string AutoItem = "GameObject/ILLUSORY OVERRIDE/ReFrame/このアバターに ReFrame を追加";
+        const string PickItem = "GameObject/ILLUSORY OVERRIDE/ReFrame/種類を選んで ReFrame を追加...";
 
         [MenuItem(AutoItem, true)]
         [MenuItem(PickItem, true)]

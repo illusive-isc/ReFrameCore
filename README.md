@@ -23,7 +23,7 @@ ReFrame は、アバターに入っている「使わない衣装・ギミック
 
 ## 使い方
 
-1. Hierarchy でアバターを右クリック → **ReFrame → このアバターに ReFrame を追加**
+1. Hierarchy でアバターを右クリック → **ILLUSORY OVERRIDE → ReFrame → このアバターに ReFrame を追加**
 2. 追加された `ReFrame` オブジェクトの Inspector で、**使わない衣装・ギミックにチェック**を入れます。
    - チェックした項目が Scene と Hierarchy から消えて見えるので、消し過ぎに気づけます (「プレビューに反映」で切り替え)。
    - 上部にパラメーターの空き容量が出ます。
