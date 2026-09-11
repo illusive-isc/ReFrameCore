@@ -1,6 +1,6 @@
 {
 	"name": "jp.illusive-isc.reframe-core",
-	"version": "0.0.6",
+	"version": "0.0.7",
 	"displayName": "ReFrameCore",
 	"description": "ReFrame の共通部分です。アバター用のパッケージを入れると、依存として一緒に入ります。",
 	"unity": "2022.3",

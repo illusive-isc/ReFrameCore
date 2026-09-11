@@ -1,5 +1,10 @@
 # Changelog — ReFrameCore
 
+## 0.0.7
+
+- Hierarchy の右クリックメニューを「ILLUSORY OVERRIDE → ReFrame」の下に移しました (Add Component と同じ場所)。
+- README を利用者向けの説明に書き直しました。
+
 ## 0.0.6
 
 - Inspector の一番上に、作者ショップ (BOOTH) の商品紹介を折りたたみで置きました。既定では閉じていて、ReFrame の設定には影響しません。開くと 3 件ずつ自動で切り替わり、◀ ▶ で送れます。
