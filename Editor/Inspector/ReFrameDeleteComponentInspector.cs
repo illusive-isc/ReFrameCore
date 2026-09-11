@@ -443,6 +443,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
             _questEnabled = component.QuestConversionActive;
 
+            if (ShowsPromo(component))
+                root.Add(BuildPromoSection(component));
             root.Add(ReFrameUpdateChecker.BuildNotice(component));
 
             var previewProp = serializedObject.FindProperty(
@@ -1494,6 +1496,200 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>Alt を押している間、各行の表示名をメニュー項目名からパラメーター名へ差し替える。</summary>
+        static bool HasPromo(System.Type type) =>
+            type.GetCustomAttributes<ReFramePromoAttribute>(true).Any()
+            || type.GetCustomAttributes<ReFramePromoItemAttribute>(true).Any();
+
+        /// <summary>宣伝は Inspector の最上段に出すので、同じ GameObject に並ぶ ReFrame のうち一番上のものにだけ出す。</summary>
+        static bool ShowsPromo(ReFrameDeleteComponent component)
+        {
+            if (!HasPromo(component.GetType()))
+                return false;
+            foreach (var sibling in component.GetComponents<ReFrameDeleteComponent>())
+                if (sibling != null && HasPromo(sibling.GetType()))
+                    return sibling == component;
+            return false;
+        }
+
+        VisualElement BuildPromoSection(ReFrameDeleteComponent component)
+        {
+            var type = component.GetType();
+            var box = new VisualElement();
+            box.AddToClassList("reframe-category");
+            box.AddToClassList("reframe-promo");
+
+            var shop = type.GetCustomAttributes<ReFramePromoAttribute>(true).FirstOrDefault();
+            var header = new VisualElement();
+            header.AddToClassList("reframe-category-header");
+            header.AddToClassList("reframe-category-header--foldable");
+            var arrow = new Label();
+            arrow.AddToClassList("reframe-category-header__arrow");
+            header.Add(arrow);
+            var title = new Label(shop?.Title ?? "BOOTH の商品紹介");
+            title.AddToClassList("reframe-category-header__label");
+            header.Add(title);
+            var chip = new Label("宣伝");
+            chip.AddToClassList("reframe-chip");
+            chip.AddToClassList("reframe-promo__chip");
+            chip.tooltip = "作者のショップ (BOOTH) の商品紹介です。ReFrame の設定には関係ありません。";
+            header.Add(chip);
+            if (shop != null && !string.IsNullOrEmpty(shop.Url))
+            {
+                var url = shop.Url;
+                var open = new Button(() => Application.OpenURL(url)) { text = shop.ButtonLabel, tooltip = url };
+                open.AddToClassList("reframe-promo__button");
+                header.Add(open);
+            }
+            box.Add(header);
+
+            var content = new VisualElement();
+            content.AddToClassList("reframe-category-content");
+            if (shop != null && !string.IsNullOrEmpty(shop.Description))
+            {
+                var description = new Label(shop.Description);
+                description.AddToClassList("reframe-promo__description");
+                description.style.marginBottom = 4;
+                content.Add(description);
+            }
+            content.Add(BuildPromoCarousel(type.GetCustomAttributes<ReFramePromoItemAttribute>(true).ToList()));
+            box.Add(content);
+
+            var key = FoldKey(component, "Promo");
+            var expanded = SessionState.GetBool(key, false);
+            void Apply()
+            {
+                arrow.text = expanded ? "▼" : "▶";
+                content.style.display = expanded ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+            Apply();
+            header.RegisterCallback<ClickEvent>(e =>
+            {
+                if (e.target is Button)
+                    return;
+                expanded = !expanded;
+                SessionState.SetBool(key, expanded);
+                Apply();
+            });
+            return box;
+        }
+
+        const int PromoPageSize = 3;
+        const long PromoAutoScrollMs = 6000;
+
+        /// <summary>商品を 3 件ずつのページで見せ、左右ボタンと一定時間で切り替える。</summary>
+        VisualElement BuildPromoCarousel(List<ReFramePromoItemAttribute> promos)
+        {
+            var carousel = new VisualElement();
+            carousel.AddToClassList("reframe-promo__carousel");
+            if (promos.Count == 0)
+                return carousel;
+
+            var pages = (promos.Count + PromoPageSize - 1) / PromoPageSize;
+            var rows = new List<VisualElement>();
+            var list = new VisualElement();
+            list.AddToClassList("reframe-promo__list");
+            foreach (var promo in promos)
+            {
+                var row = BuildPromoItem(promo);
+                rows.Add(row);
+                list.Add(row);
+            }
+            carousel.Add(list);
+
+            if (pages <= 1)
+                return carousel;
+
+            var nav = new VisualElement();
+            nav.AddToClassList("reframe-promo__nav");
+            var prev = new Button { text = "◀" };
+            prev.AddToClassList("reframe-promo__nav-button");
+            var counter = new Label();
+            counter.AddToClassList("reframe-promo__nav-counter");
+            var next = new Button { text = "▶" };
+            next.AddToClassList("reframe-promo__nav-button");
+            nav.Add(prev);
+            nav.Add(counter);
+            nav.Add(next);
+            carousel.Add(nav);
+
+            var page = 0;
+            var hovered = false;
+            void Show()
+            {
+                for (var i = 0; i < rows.Count; i++)
+                    rows[i].style.display =
+                        i / PromoPageSize == page ? DisplayStyle.Flex : DisplayStyle.None;
+                counter.text = (page + 1) + " / " + pages;
+            }
+            var timer = carousel.schedule.Execute(() =>
+            {
+                if (hovered || IsHidden(carousel))
+                    return;
+                page = (page + 1) % pages;
+                Show();
+            });
+            timer.Every(PromoAutoScrollMs);
+            void Move(int delta)
+            {
+                page = (page + delta + pages) % pages;
+                Show();
+                timer.Pause();
+                timer.Resume();
+            }
+            prev.clickable = new Clickable(() => Move(-1));
+            next.clickable = new Clickable(() => Move(1));
+            carousel.RegisterCallback<MouseEnterEvent>(_ => hovered = true);
+            carousel.RegisterCallback<MouseLeaveEvent>(_ => hovered = false);
+            Show();
+            return carousel;
+        }
+
+        static bool IsHidden(VisualElement element)
+        {
+            for (var e = element; e != null; e = e.parent)
+                if (e.resolvedStyle.display == DisplayStyle.None)
+                    return true;
+            return false;
+        }
+
+        VisualElement BuildPromoItem(ReFramePromoItemAttribute promo)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("reframe-promo__row");
+
+            var texture = string.IsNullOrEmpty(promo.ImagePath)
+                ? null
+                : AssetDatabase.LoadAssetAtPath<Texture2D>(promo.ImagePath);
+            var image = new Image { image = texture, scaleMode = ScaleMode.ScaleToFit };
+            image.AddToClassList("reframe-promo__image");
+            image.EnableInClassList("reframe-promo__image--empty", texture == null);
+            row.Add(image);
+
+            var text = new VisualElement();
+            text.AddToClassList("reframe-promo__text");
+            var name = new Label(promo.Title);
+            name.AddToClassList("reframe-promo__title");
+            text.Add(name);
+            if (!string.IsNullOrEmpty(promo.Description))
+            {
+                var description = new Label(promo.Description);
+                description.AddToClassList("reframe-promo__description");
+                text.Add(description);
+            }
+            row.Add(text);
+
+            var url = promo.Url;
+            var button = new Button(() => Application.OpenURL(url)) { text = "BOOTH で見る", tooltip = url };
+            button.AddToClassList("reframe-promo__button");
+            row.Add(button);
+            row.RegisterCallback<ClickEvent>(e =>
+            {
+                if (!(e.target is Button))
+                    Application.OpenURL(url);
+            });
+            return row;
+        }
+
         VisualElement BuildAltProbe()
         {
             var probe = new IMGUIContainer(() =>
