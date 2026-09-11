@@ -46,7 +46,7 @@ Inspector 上部の **「Quest 簡易対応版を作成」** を押すと、そ�
 
 ## 更新
 
-新しい版が出ると Inspector の上部に通知が出ます。VCC から更新してください。変更点は [CHANGELOG](CHANGELOG.md) にあります。
+新しい版が出ると Inspector の上部に通知が出ます。「更新ページを開く」から unitypackage をダウンロードして Unity に取り込むと入れ替わります。VCC から更新しても構いません。変更点は [CHANGELOG](CHANGELOG.md) にあります。
 
 ## ライセンス・連絡先
 

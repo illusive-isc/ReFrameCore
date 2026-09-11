@@ -1,5 +1,10 @@
 # Changelog — ReFrameCore
 
+## 0.1.0
+
+- 更新のお知らせから、zip を直接ダウンロードして入れ替える「更新する…」を無くしました。更新は「更新ページを開く」で配布ページの unitypackage を取り込む方法だけにしています。
+- 「VCC を開く」ボタンも外しました。
+
 ## 0.0.7
 
 - Hierarchy の右クリックメニューを「ILLUSORY OVERRIDE → ReFrame」の下に移しました (Add Component と同じ場所)。
