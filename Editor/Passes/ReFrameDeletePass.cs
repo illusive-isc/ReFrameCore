@@ -80,6 +80,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 return;
             DestroyedObjectPaths.Clear();
 
+            ReFrameSweepPass.TakeSnapshot(context);
+
             DeduplicateExpressionParameters(context);
 
             CleanDeadAnimatorStructure(context);

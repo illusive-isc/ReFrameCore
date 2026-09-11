@@ -15,6 +15,22 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         public bool Enabled;
     }
 
+    /// <summary>焼き付け前のアバターの状態。Sweep はここから変わったものだけを掃除する。</summary>
+    internal sealed class ReFrameSweepSnapshot
+    {
+        public bool Taken;
+        public HashSet<Transform> Used = new HashSet<Transform>();
+        public Dictionary<Transform, string> Reasons = new Dictionary<Transform, string>();
+        /// <summary>使用理由の持ち主。全部破棄されて初めて「使われなくなった」とみなす。</summary>
+        public Dictionary<Transform, List<Object>> Owners = new Dictionary<Transform, List<Object>>();
+        public HashSet<GameObject> ActiveSelf = new HashSet<GameObject>();
+        public HashSet<Renderer> EnabledRenderers = new HashSet<Renderer>();
+        /// <summary>焼き付け前に m_IsActive をアニメーションされていた GameObject (MA MergeAnimator のコントローラーも含む)。</summary>
+        public HashSet<Transform> ActiveAnimated = new HashSet<Transform>();
+        /// <summary>焼き付け前に m_Enabled をアニメーションされていた Renderer。</summary>
+        public HashSet<Renderer> EnabledAnimated = new HashSet<Renderer>();
+    }
+
     /// <summary>焼き付けの結果もう二度と有効化されない GameObject と、その巻き添えで誰からも 使われなくなったボーンを、アバターから実際に破棄する。</summary>
     [DependsOnContext(typeof(AnimatorServicesContext))]
     public class ReFrameSweepPass : Pass<ReFrameSweepPass>
@@ -28,7 +44,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var asc = context.Extension<AnimatorServicesContext>();
 
             var destroyedObjects = SweepPermanentlyInactiveObjects(context, root, asc);
-            var destroyedRenderers = SweepPermanentlyDisabledRenderers(root, asc);
+            var destroyedRenderers = SweepPermanentlyDisabledRenderers(context, root, asc);
             var deadDrivers = RemoveDriversNobodyReads(context, asc);
             CompactColliderLists(root);
 
@@ -36,7 +52,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var removedLayers = 0;
             while (true)
             {
-                var bones = SweepUnusedBones(root, asc);
+                var bones = SweepUnusedBones(context, root, asc);
                 var layers = RemoveLayersWithNoLivingTargets(context, root, asc);
                 destroyedBones += bones;
                 removedLayers += layers;
@@ -71,8 +87,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (roots.Count == 0)
                 return 0;
 
+            var snapshot = context.GetState<ReFrameSweepSnapshot>();
             var permanent = roots
                 .Where(t => !IsActiveAnimatedOnPathToRoot(t, root, asc))
+                .Where(t => !snapshot.Taken || snapshot.ActiveSelf.Contains(t.gameObject) || WasActiveAnimatedOnPath(t, root, snapshot))
                 .ToList();
             if (permanent.Count == 0)
                 return 0;
@@ -130,6 +148,15 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return destroyed;
         }
 
+        /// <summary>焼き付け前、この Transform かその祖先の m_IsActive がアニメーションされていたか (= 焼き付けで有効化の道が絶たれた)。</summary>
+        static bool WasActiveAnimatedOnPath(Transform t, Transform root, ReFrameSweepSnapshot snapshot)
+        {
+            for (var cursor = t; cursor != null && cursor != root; cursor = cursor.parent)
+                if (snapshot.ActiveAnimated.Contains(cursor))
+                    return true;
+            return false;
+        }
+
         static void CollectInactiveRoots(Transform t, List<Transform> result)
         {
             foreach (Transform child in t)
@@ -158,12 +185,15 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             IsPropertyAnimated(t, asc, "m_IsActive");
 
         /// <summary>GameObject は生きたまま Renderer.enabled だけ false に焼き付けられ、 もう二度と true に戻らないレンダラーを取り除く。</summary>
-        static int SweepPermanentlyDisabledRenderers(Transform root, AnimatorServicesContext asc)
+        static int SweepPermanentlyDisabledRenderers(BuildContext context, Transform root, AnimatorServicesContext asc)
         {
+            var snapshot = context.GetState<ReFrameSweepSnapshot>();
             var destroyed = 0;
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true).ToList())
             {
                 if (renderer == null || renderer.enabled)
+                    continue;
+                if (snapshot.Taken && !snapshot.EnabledRenderers.Contains(renderer) && !snapshot.EnabledAnimated.Contains(renderer))
                     continue;
                 if (IsPropertyAnimated(renderer.transform, asc, "m_Enabled"))
                     continue;
@@ -214,17 +244,73 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         static bool IsRuntimeHelperComponent(Component c) =>
             c.GetType().Name == "ParentChangeDetector";
 
-        /// <summary>生き残ったスキンメッシュのボーンでもなく、ヒューマノイドでもなく、アニメーションも されず、他から参照もされていない Transform を、葉から順に破棄する。</summary>
-        static int SweepUnusedBones(Transform root, AnimatorServicesContext asc)
+        /// <summary>焼き付け前の状態を記録する (ReFrameDeletePass の先頭から呼ぶ)。</summary>
+        internal static void TakeSnapshot(BuildContext context)
+        {
+            var snapshot = context.GetState<ReFrameSweepSnapshot>();
+            var root = context.AvatarRootTransform;
+            snapshot.Used = CollectUsedTransforms(root, snapshot.Reasons, snapshot.Owners);
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (t.gameObject.activeSelf)
+                    snapshot.ActiveSelf.Add(t.gameObject);
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                if (r.enabled)
+                    snapshot.EnabledRenderers.Add(r);
+
+            var descriptor = root.GetComponent<VRCAvatarDescriptor>();
+            if (descriptor != null)
+                foreach (var (controller, pathRoot) in ReFrameBakedVisibilityResolver.CollectAllControllers(descriptor))
+                {
+                    if (controller == null || pathRoot == null)
+                        continue;
+                    foreach (var clip in controller.animationClips.Distinct())
+                    {
+                        if (clip == null)
+                            continue;
+                        foreach (var binding in AnimationUtility.GetCurveBindings(clip))
+                        {
+                            var target = pathRoot.Find(binding.path);
+                            if (target == null)
+                                continue;
+                            if (binding.type == typeof(GameObject) && binding.propertyName == "m_IsActive")
+                                snapshot.ActiveAnimated.Add(target);
+                            else if (binding.propertyName == "m_Enabled" && typeof(Renderer).IsAssignableFrom(binding.type))
+                            {
+                                var renderer = target.GetComponent(binding.type) as Renderer;
+                                if (renderer != null)
+                                    snapshot.EnabledAnimated.Add(renderer);
+                            }
+                        }
+                    }
+                }
+            snapshot.Taken = true;
+        }
+
+        /// <summary>「使用中」の Transform (コンポーネントを持つ / ヒューマノイド / 生存 SMR のボーン / 他から参照される) を集める。</summary>
+        internal static HashSet<Transform> CollectUsedTransforms(Transform root, Dictionary<Transform, string> reasons = null, Dictionary<Transform, List<Object>> owners = null)
         {
             var used = new HashSet<Transform>();
+            void Mark(Transform t, string why, Object owner)
+            {
+                if (owners != null)
+                {
+                    if (!owners.TryGetValue(t, out var list))
+                        owners[t] = list = new List<Object>();
+                    list.Add(owner);
+                }
+                if (!used.Add(t))
+                    return;
+                if (reasons != null)
+                    reasons[t] = why;
+            }
 
             foreach (var t in root.GetComponentsInChildren<Transform>(true))
-                if (
-                    t.GetComponents<Component>()
-                        .Any(c => c != null && !(c is Transform) && !IsSelfDrivingComponent(c))
-                )
-                    used.Add(t);
+            {
+                var content = t.GetComponents<Component>()
+                    .FirstOrDefault(c => c != null && !(c is Transform) && !(c is VRC.SDKBase.IEditorOnly) && !IsSelfDrivingComponent(c));
+                if (content != null)
+                    Mark(t, "component " + content.GetType().Name, t.gameObject);
+            }
 
             var animator = root.GetComponent<Animator>();
             if (animator != null && animator.avatar != null && animator.avatar.isHuman)
@@ -232,26 +318,79 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 {
                     var bone = animator.GetBoneTransform((HumanBodyBones)i);
                     if (bone != null)
-                        used.Add(bone);
+                        Mark(bone, "humanoid", root.gameObject);
                 }
 
             foreach (var smr in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
                 if (smr.rootBone != null)
-                    used.Add(smr.rootBone);
+                    Mark(smr.rootBone, "rootBone of " + smr.name, smr);
                 if (smr.probeAnchor != null)
-                    used.Add(smr.probeAnchor);
+                    Mark(smr.probeAnchor, "probeAnchor of " + smr.name, smr);
                 if (smr.bones == null)
                     continue;
                 foreach (var bone in smr.bones)
                     if (bone != null)
-                        used.Add(bone);
+                        Mark(bone, "bone of " + smr.name, smr);
             }
 
-            foreach (var t in CollectReferencedTransforms(root, null, skipShakers: true))
-                used.Add(t);
+            foreach (var kv in CollectReferencedTransformsWithOwner(root, skipShakers: true, skipEditorOnly: true))
+                Mark(kv.Key, "referenced by " + kv.Value.Label, kv.Value.Owner);
+
+            if (owners != null)
+                foreach (var component in root.GetComponentsInChildren<Component>(true))
+                {
+                    if (component == null || !IsShakerComponent(component))
+                        continue;
+                    using var so = new SerializedObject(component);
+                    var it = so.GetIterator();
+                    while (it.Next(true))
+                    {
+                        if (it.propertyType != SerializedPropertyType.ObjectReference || !IsWeakColliderReference(it))
+                            continue;
+                        var target = AsTransform(it.objectReferenceValue);
+                        if (target == null || target == component.transform || !target.IsChildOf(root))
+                            continue;
+                        if (!owners.TryGetValue(target, out var list))
+                            owners[target] = list = new List<Object>();
+                        list.Add(component);
+                        if (reasons != null && !reasons.ContainsKey(target))
+                            reasons[target] = "collider of " + component.GetType().Name + "@" + Path(root, component.transform);
+                    }
+                }
 
             used.Add(root);
+            return used;
+        }
+
+        /// <summary>生き残ったスキンメッシュのボーンでもなく、ヒューマノイドでもなく、アニメーションも されず、他から参照もされていない Transform を、葉から順に破棄する。 スナップショットがあれば「焼き付け前は使用中だったが今は使われなくなった Transform (とその子孫)」だけを対象にする。</summary>
+        static int SweepUnusedBones(BuildContext context, Transform root, AnimatorServicesContext asc)
+        {
+            var used = CollectUsedTransforms(root);
+            var snapshot = context.GetState<ReFrameSweepSnapshot>();
+            HashSet<Transform> freed = null;
+            if (snapshot.Taken)
+            {
+                freed = new HashSet<Transform>();
+                foreach (var kv in snapshot.Owners)
+                {
+                    var t = kv.Key;
+                    if (t == null || used.Contains(t))
+                        continue;
+                    if (kv.Value.Any(o => o != null))
+                        continue;
+                    freed.Add(t);
+                }
+            }
+            System.Func<Transform, string> collateralReason = t =>
+            {
+                if (freed == null)
+                    return "";
+                for (var cursor = t; cursor != null && cursor != root; cursor = cursor.parent)
+                    if (freed.Contains(cursor))
+                        return " (freed: " + Path(root, cursor) + " was " + (snapshot.Reasons.TryGetValue(cursor, out var why) ? why : "?") + ")";
+                return null;
+            };
 
             var destroyed = 0;
             var destroyedPaths = new List<string>();
@@ -262,9 +401,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
                 if (t == null || used.Contains(t) || t.childCount > 0)
                     continue;
+                var reason = collateralReason(t);
+                if (reason == null)
+                    continue;
                 if (HasWorkingShaker(t, root, used))
                     continue;
-                destroyedPaths.Add(Path(root, t));
+                destroyedPaths.Add(Path(root, t) + reason);
                 Object.DestroyImmediate(t.gameObject);
                 destroyed++;
             }
@@ -555,6 +697,34 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (HasBehaviour(child.StateMachine))
                     return true;
             return false;
+        }
+
+        /// <summary>参照している Transform → 参照元 (型名@パス) の対応。IEditorOnly (ビルド中に消えるコンポーネント) からの参照は数えない。</summary>
+        static Dictionary<Transform, (string Label, Object Owner)> CollectReferencedTransformsWithOwner(Transform root, bool skipShakers, bool skipEditorOnly)
+        {
+            var result = new Dictionary<Transform, (string Label, Object Owner)>();
+            foreach (var component in root.GetComponentsInChildren<Component>(true))
+            {
+                if (component == null || component is Transform)
+                    continue;
+                if (skipShakers && IsShakerComponent(component))
+                    continue;
+                if (skipEditorOnly && component is VRC.SDKBase.IEditorOnly)
+                    continue;
+                using var so = new SerializedObject(component);
+                var it = so.GetIterator();
+                while (it.Next(true))
+                {
+                    if (it.propertyType != SerializedPropertyType.ObjectReference)
+                        continue;
+                    if (IsWeakColliderReference(it) || IsNetworkIdReference(it))
+                        continue;
+                    var target = AsTransform(it.objectReferenceValue);
+                    if (target != null && target != component.transform && target.IsChildOf(root) && !result.ContainsKey(target))
+                        result[target] = (component.GetType().Name + "@" + Path(root, component.transform) + "." + it.propertyPath, component);
+                }
+            }
+            return result;
         }
 
         /// <summary>アバター配下のコンポーネントが参照している Transform / GameObject を集める。</summary>

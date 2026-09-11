@@ -191,25 +191,6 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             var skeleton = CollectSkeleton(avatarRoot);
 
-            foreach (var target in avatarRoot.GetComponentsInChildren<Transform>(true))
-            {
-                if (target == avatarRoot || skeleton.Contains(target))
-                    continue;
-                if (result.GameObjectActive.TryGetValue(target, out var forced))
-                {
-
-                    if (forced)
-                        continue;
-                }
-                else if (target.gameObject.activeSelf)
-                {
-                    continue;
-                }
-                if (activatable.Contains(target))
-                    continue;
-                result.GameObjectActive[target] = false;
-            }
-
             CollapseEmptyContainers(avatarRoot, result, skeleton, animated);
         }
 
@@ -276,12 +257,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     if (component is Transform)
                         continue;
 
+                    if (component is ModularAvatarBoneProxy)
+                    {
+                        hasOwnContent = true;
+                        break;
+                    }
                     if (component is VRC.SDKBase.IEditorOnly)
                         continue;
                     hasOwnContent = true;
                     break;
                 }
                 if (hasOwnContent)
+                    continue;
+
+                if (target.childCount == 0)
                     continue;
 
                 var allChildrenGone = true;
