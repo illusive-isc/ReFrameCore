@@ -55,6 +55,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>[ReFrameReverse] が付いていて「OFF に見える値」が 1 側になっている。</summary>
             public bool Reversed;
 
+            /// <summary>[ReFrameZeroChoice]: 0 を「ギミック OFF」ではなく正規の選択肢として扱う (そのときの表示名)。無ければ null。</summary>
+            public string ZeroChoiceLabel;
+
             /// <summary>[ReFrameApplyToAvatar]: アバター自体の変更 (体型)。</summary>
             public bool ApplyToAvatar;
 
@@ -2077,6 +2080,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     Type = ReFrameParameterType.Auto,
                     Label = ObjectNames.NicifyVariableName(field.Name),
                     Reversed = field.GetCustomAttribute<ReFrameReverseAttribute>(true) != null,
+                    ZeroChoiceLabel = field.GetCustomAttribute<ReFrameZeroChoiceAttribute>(true)?.Label,
                     ApplyToAvatar = field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) != null,
                 };
 
@@ -2908,6 +2912,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var effective = entry.LockedValue ?? valueProp.floatValue;
                 var zeroIsOff =
                     entry.Kind == ValueKind.Choice
+                    && entry.ZeroChoiceLabel == null
                     && Mathf.Approximately(effective, 0f)
                     && entry.Usage != null
                     && !entry.Usage.Choices.Any(c => Mathf.Approximately(c.Value, 0f));
@@ -3035,7 +3040,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             switch (entry.Kind)
             {
                 case ValueKind.Choice:
-                    return BuildChoiceDropdown(entry.Usage, valueProp, trackHost, onValueChanged);
+                    return BuildChoiceDropdown(entry.Usage, valueProp, trackHost, onValueChanged, entry.ZeroChoiceLabel);
                 case ValueKind.OnOff:
                     return BuildOnOffTile(valueProp, entry.Reversed, trackHost, onValueChanged);
                 default:
@@ -3095,11 +3100,21 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             ReFrameMenuGrouping.ParameterUsage usage,
             SerializedProperty valueProp,
             VisualElement trackHost,
-            System.Action onValueChanged
+            System.Action onValueChanged,
+            string zeroChoiceLabel = null
         )
         {
             var values = new List<float>();
             var choices = new List<string>();
+            // [ReFrameZeroChoice] 付き (尻尾の見た目など、トグルを全部 OFF にした 0 が既定の見た目) では、
+            // 候補がメニュー項目だけだと「どれも選ばない」に戻せないので、先頭に「選択なし (0)」を常に出す。
+            // 属性が無い Float の 0 は従来どおり「OFF = ギミック削除」の意味なので候補には出さない
+            // (現在値が 0 のときだけ Refresh が "OFF (0)" を補う)。
+            if (zeroChoiceLabel != null && !usage.Choices.Any(c => Mathf.Approximately(c.Value, 0f)))
+            {
+                values.Add(0f);
+                choices.Add($"{zeroChoiceLabel}  (0)");
+            }
             foreach (var (value, controlName) in usage.Choices)
             {
 
@@ -3121,7 +3136,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 {
 
                     var label = Mathf.Approximately(current, 0f)
-                        ? "OFF  (0)"
+                        ? (zeroChoiceLabel != null ? $"{zeroChoiceLabel}  (0)" : "OFF  (0)")
                         : $"{current:0.##}  (候補外)";
                     if (!choices.Contains(label))
                     {

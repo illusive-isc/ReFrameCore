@@ -32,6 +32,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 clone = Object.Instantiate(source);
                 clone.name = source.name;
                 saver?.SaveAsset(clone);
+                // 後段のツール (TailEmbrace 等) が「元アセットへの参照」で差し込み先を探すので、
+                // ObjectRegistry に元→複製を登録して追跡できるようにする。
+                ObjectRegistry.RegisterReplacedObject(source, clone);
             }
 
             cache[source] = clone;
