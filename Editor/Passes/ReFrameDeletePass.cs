@@ -620,6 +620,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (cutTris > 0)
                 Debug.Log($"[ReFrameCore] 透明なので削った三角形: {cutTris} 枚");
 
+            var cutByShape = ReFrameQuestAssetTrim.CutByBlendShape(context);
+            if (cutByShape > 0)
+                Debug.Log($"[ReFrameCore] BlendShape で動くので削った三角形: {cutByShape} 枚");
+
             var meshes = ReFrameQuestAssetTrim.RemoveVertexColors(context);
             if (meshes > 0)
                 Debug.Log($"[ReFrameCore] 頂点カラーを消したメッシュ: {meshes} 個");

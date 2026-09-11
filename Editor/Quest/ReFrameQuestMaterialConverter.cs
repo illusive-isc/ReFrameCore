@@ -39,6 +39,46 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         static Dictionary<Material, (float Opacity, Color Backdrop)> Backdrops =
             new Dictionary<Material, (float, Color)>();
 
+        /// <summary>[ReFrameQuestCutByBlendShape] の宣言 (Renderer ごと)。プレビューのメッシュ差し替え用。</summary>
+        static Dictionary<Renderer, List<ReFrameQuestCutByBlendShapeAttribute>> ShapeCuts =
+            new Dictionary<Renderer, List<ReFrameQuestCutByBlendShapeAttribute>>();
+
+        /// <summary>この Renderer に掛かる [ReFrameQuestCutByBlendShape]。</summary>
+        internal static IReadOnlyList<ReFrameQuestCutByBlendShapeAttribute> ShapeCutsOf(Renderer renderer) =>
+            ShapeCuts.TryGetValue(renderer, out var list) ? list : null;
+
+        static void ResolveShapeCuts(Transform root)
+        {
+            ShapeCuts = new Dictionary<Renderer, List<ReFrameQuestCutByBlendShapeAttribute>>();
+            foreach (var component in ReFrameDeleteComponent.ActiveIn(root))
+            {
+                if (component == null)
+                    continue;
+                foreach (
+                    var attr in (ReFrameQuestCutByBlendShapeAttribute[])
+                        System.Attribute.GetCustomAttributes(component.GetType(), typeof(ReFrameQuestCutByBlendShapeAttribute), true)
+                )
+                {
+                    var target = string.IsNullOrEmpty(attr.Path) ? null : root.Find(attr.Path);
+                    if (target == null)
+                        continue;
+                    foreach (var renderer in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    {
+                        if (!ShapeCuts.TryGetValue(renderer, out var list))
+                            ShapeCuts[renderer] = list = new List<ReFrameQuestCutByBlendShapeAttribute>();
+                        list.Add(attr);
+                    }
+                }
+            }
+        }
+
+        /// <summary>袋 (膜を持つ連結成分) だけ消して中身を残す透過マテリアル枠。</summary>
+        static HashSet<(Renderer Renderer, int Slot)> ShellDropSlots = new HashSet<(Renderer, int)>();
+
+        /// <summary>中身を焼き込む透過マテリアル枠と、その調整。</summary>
+        static Dictionary<(Renderer Renderer, int Slot), ReFrameQuestShellBake.Options> ShellSlots =
+            new Dictionary<(Renderer, int), ReFrameQuestShellBake.Options>();
+
         /// <summary>描かないことにしたマテリアル枠 (Renderer と枠番号)。</summary>
         static HashSet<(Renderer Renderer, int Slot)> DroppedSlots =
             new HashSet<(Renderer, int)>();
@@ -106,6 +146,24 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         changed = true;
                         log.Add(source.name + " (余剰スロットなので空にした)");
                         continue;
+                    }
+
+                    if (IsShellSlot(renderer, i))
+                    {
+                        var shell = BuildToonLit(source, toonLit, context, renderer, i);
+                        materials[i] = shell;
+                        changed = true;
+                        var cut = ShellSlots[(renderer, i)].CutEmpty
+                            ? CutEmptyShell(context, renderer, i, shell.mainTexture)
+                            : 0;
+                        log.Add($"{source.name} [{source.shader.name}] -> {shell.name} (中身を焼き込んだ" + (cut > 0 ? $"、何も写らない三角形を {cut} 枚切った)" : ")"));
+                        continue;
+                    }
+
+                    if (IsShellDropSlot(renderer, i))
+                    {
+                        var dropped = DropShell(context, renderer, i, source.mainTexture);
+                        log.Add($"{source.name} (袋の三角形を {dropped} 枚消した)");
                     }
 
                     if (!converted.TryGetValue(source, out var replacement))
@@ -202,13 +260,16 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             + "|" + ShadowFromNormalMap
             + "|outline=" + OutlineTargets.Count
             + "|backdrop=" + Backdrops.Count
+            + "|shell=" + ShellSlots.Count + ":" + ShellOptionsSignature()
+            + "|shapecut=" + ShapeCuts.Count
+            + "|choices=" + ChoiceSignature
             + "|bright=" + BrightnessOverrides.Count
             + "|tint=" + TintOverrides.Count
 
             + "|bake=" + BakeVersion;
 
         /// <summary>焼き方の版。</summary>
-        const int BakeVersion = 3;
+        const int BakeVersion = 4;
 
         /// <summary>焼き済みの置き場。</summary>
         static ReFrameQuestBakeSet BakeSet;
@@ -223,11 +284,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>焼き済みがあればそれを返す。</summary>
-        internal static Material FindBaked(Material source)
+        internal static Material FindBaked(Material source, string slotKey = null)
         {
             if (BakeSet == null)
                 return null;
-            var baked = BakeSet.Find(source);
+            var baked = BakeSet.Find(source, slotKey);
             if (baked == null)
                 return null;
             if (FitsBuildTarget(baked))
@@ -270,6 +331,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             ResolveBakeAdjust(root);
             ResolveOutlineTargets(root);
             ResolveDroppedSlots(root);
+            ResolveTransparentSlots(root);
+            ResolveShapeCuts(root);
             ResolveBackdrops(root);
             ResolveBrightnessOverrides(root);
             ResolveTintOverrides(root);
@@ -552,6 +615,136 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         internal static bool IsDroppedSlot(Renderer renderer, int slot) =>
             DroppedSlots.Contains((renderer, slot));
 
+        /// <summary>[ReFrameQuestTransparent] の枠を、選ばれた扱いごとに振り分ける。</summary>
+        /// <summary>焼き込む枠すべての調整値 (置き場の指紋用)。</summary>
+        static string ShellOptionsSignature()
+        {
+            var parts = new List<string>();
+            foreach (var kv in ShellSlots)
+                parts.Add(SlotKey(kv.Key.Renderer, kv.Key.Slot) + "=" + ShellSignature(kv.Value));
+            parts.Sort();
+            return string.Join(";", parts);
+        }
+
+        /// <summary>Inspector で選んだ透過マテリアルの扱いと色 (置き場の指紋用)。</summary>
+        static string ChoiceSignature = string.Empty;
+
+        static void ResolveTransparentSlots(Transform root)
+        {
+            ShellSlots = new Dictionary<(Renderer, int), ReFrameQuestShellBake.Options>();
+            ShellDropSlots = new HashSet<(Renderer, int)>();
+            var signature = new System.Text.StringBuilder();
+            foreach (var component in ReFrameDeleteComponent.ActiveIn(root))
+            {
+                if (component == null)
+                    continue;
+                signature.Append(component.QuestTransparentChoiceSignature());
+                foreach (var (declared, mode) in component.EnumerateQuestTransparentTargets())
+                {
+                    var target = root.Find(declared.Path);
+                    if (target == null)
+                        continue;
+                    foreach (var renderer in target.GetComponentsInChildren<Renderer>(true))
+                    {
+                        switch (mode)
+                        {
+                            case ReFrameQuestTransparentMode.Drop:
+                                ShellDropSlots.Add((renderer, declared.Slot));
+                                break;
+                            case ReFrameQuestTransparentMode.BakeInside:
+                                var options = ShellOptionsOf(declared);
+                                var chosen = component.QuestTransparentBeyond(declared.Path, declared.Slot);
+                                if (chosen.HasValue)
+                                    options.Beyond = chosen.Value;
+                                ShellSlots[(renderer, declared.Slot)] = options;
+                                break;
+                        }
+                    }
+                }
+            }
+            ChoiceSignature = signature.ToString();
+        }
+
+        static ReFrameQuestShellBake.Options ShellOptionsOf(ReFrameQuestTransparentAttribute declared)
+        {
+            var options = ReFrameQuestShellBake.Options.Default;
+            options.RimStrength = declared.Rim;
+            options.Gloss = declared.Gloss;
+            options.CutEmpty = declared.CutEmpty;
+            options.AllSides = declared.AllSides;
+            options.Size = declared.Size;
+            if (!string.IsNullOrEmpty(declared.Beyond))
+            {
+                if (ColorUtility.TryParseHtmlString(declared.Beyond, out var beyond))
+                    options.Beyond = beyond;
+                else
+                    Debug.LogWarning(
+                        $"[ReFrameCore] '{declared.Beyond}' を色として読めません ({declared.Path})。#RRGGBB で書いてください。"
+                    );
+            }
+            return options;
+        }
+
+        /// <summary>焼き上がりで何も写らなかった膜の三角形を、ビルド内の複製メッシュから切る。</summary>
+        static int CutEmptyShell(BuildContext context, Renderer renderer, int slot, Texture baked)
+        {
+            var skinned = renderer as SkinnedMeshRenderer;
+            var filter = skinned == null ? renderer.GetComponent<MeshFilter>() : null;
+            var mesh = skinned != null ? skinned.sharedMesh : filter != null ? filter.sharedMesh : null;
+            var clone = ReFrameQuestShellBake.CutEmpty(mesh, slot, baked);
+            if (clone == null)
+                return 0;
+            context.AssetSaver.SaveAsset(clone);
+            ObjectRegistry.RegisterReplacedObject(mesh, clone);
+            if (skinned != null)
+                skinned.sharedMesh = clone;
+            else
+                filter.sharedMesh = clone;
+            return (mesh.GetSubMesh(slot).indexCount - clone.GetSubMesh(slot).indexCount) / 3;
+        }
+
+        /// <summary>この枠は中身を焼き込む指定になっているか。</summary>
+        internal static bool IsShellSlot(Renderer renderer, int slot) =>
+            ShellSlots.ContainsKey((renderer, slot));
+
+        /// <summary>この枠は袋だけ消して中身を残す指定か。</summary>
+        internal static bool IsShellDropSlot(Renderer renderer, int slot) =>
+            ShellDropSlots.Contains((renderer, slot));
+
+        /// <summary>袋 (膜を持つ連結成分) の三角形を、ビルド内の複製メッシュから切る。</summary>
+        static int DropShell(BuildContext context, Renderer renderer, int slot, Texture source)
+        {
+            var skinned = renderer as SkinnedMeshRenderer;
+            var filter = skinned == null ? renderer.GetComponent<MeshFilter>() : null;
+            var mesh = skinned != null ? skinned.sharedMesh : filter != null ? filter.sharedMesh : null;
+            var clone = ReFrameQuestShellBake.CutShell(mesh, slot, source);
+            if (clone == null)
+                return 0;
+            context.AssetSaver.SaveAsset(clone);
+            ObjectRegistry.RegisterReplacedObject(mesh, clone);
+            if (skinned != null)
+                skinned.sharedMesh = clone;
+            else
+                filter.sharedMesh = clone;
+            return (mesh.GetSubMesh(slot).indexCount - clone.GetSubMesh(slot).indexCount) / 3;
+        }
+
+        /// <summary>この枠は何も写らなかった膜を切る指定か。</summary>
+        internal static bool CutsEmptyShell(Renderer renderer, int slot) =>
+            ShellSlots.TryGetValue((renderer, slot), out var options) && options.CutEmpty;
+
+        /// <summary>枠ごとに焼くときの鍵 ("path#slot")。</summary>
+        internal static string SlotKey(Renderer renderer, int slot)
+        {
+            var root = renderer.transform;
+            while (root.parent != null && root.GetComponent<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor>() == null)
+                root = root.parent;
+            var path = renderer.transform == root
+                ? string.Empty
+                : AnimationUtility.CalculateTransformPath(renderer.transform, root);
+            return path + "#" + slot;
+        }
+
         /// <summary>指定した枠のサブメッシュを空にする (メッシュはビルド内で複製し、元アセットは触らない)。</summary>
         static void EmptySubMesh(BuildContext context, Renderer renderer, int slot)
         {
@@ -626,41 +819,58 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>1 マテリアルぶんの Toon Lit を作る (ビルド用。</summary>
-        static Material BuildToonLit(Material source, Shader toonLit, BuildContext context)
+        static Material BuildToonLit(
+            Material source,
+            Shader toonLit,
+            BuildContext context,
+            Renderer renderer = null,
+            int slot = -1
+        )
         {
-            var material = CreateToonLit(source, toonLit, out var baked);
+            var material = CreateToonLit(source, toonLit, out var baked, renderer, slot);
             if (baked != null)
                 context.AssetSaver.SaveAsset(baked);
             context.AssetSaver.SaveAsset(material);
             return material;
         }
 
-        /// <summary>Toon Lit のマテリアルと焼いたテクスチャを作る。</summary>
-        internal static Material CreateToonLit(Material source, Shader toonLit, out Texture2D baked)
+        /// <summary>Toon Lit のマテリアルと焼いたテクスチャを作る。中身を焼き込む枠は renderer と slot も渡す。</summary>
+        internal static Material CreateToonLit(
+            Material source,
+            Shader toonLit,
+            out Texture2D baked,
+            Renderer renderer = null,
+            int slot = -1
+        )
         {
+            var shellOptions = default(ReFrameQuestShellBake.Options);
+            var shell = renderer != null && ShellSlots.TryGetValue((renderer, slot), out shellOptions);
+            var slotKey = shell ? SlotKey(renderer, slot) : null;
 
-            var prebaked = FindBaked(source);
+            var prebaked = FindBaked(source, slotKey);
             if (prebaked != null)
             {
                 baked = null;
                 return prebaked;
             }
 
-            if (OutlineTargets.TryGetValue(source, out var thickness) && HasOutline(source))
+            if (!shell && OutlineTargets.TryGetValue(source, out var thickness) && HasOutline(source))
             {
                 var outline = CreateToonStandardOutline(source, thickness, out baked);
                 if (outline != null)
                     return outline;
             }
 
-            baked = IsLilToon(source) ? GetOrBake(source) : null;
+            baked = IsLilToon(source)
+                ? (shell ? GetOrBake(source, true, renderer, slot, shellOptions) : GetOrBake(source))
+                : null;
 
             var material = new Material(toonLit)
             {
-                name = source.name + " (Quest)",
+                name = source.name + (shell ? " (Quest " + slotKey + ")" : " (Quest)"),
 
                 mainTexture = baked != null ? baked : source.mainTexture,
-                renderQueue = source.renderQueue,
+                renderQueue = shell ? -1 : source.renderQueue,
                 enableInstancing = true,
                 doubleSidedGI = source.doubleSidedGI,
                 globalIlluminationFlags = source.globalIlluminationFlags,
@@ -782,14 +992,25 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         static Texture2D GetOrBake(Material source) => GetOrBake(source, true);
 
         /// <summary>明度補正と法線からの陰影を掛けるか。</summary>
-        static Texture2D GetOrBake(Material source, bool adjust)
+        static Texture2D GetOrBake(Material source, bool adjust) => GetOrBake(source, adjust, null, -1, default);
+
+        /// <summary>renderer を渡すと、その枠の中身を焼き込む。</summary>
+        static Texture2D GetOrBake(
+            Material source,
+            bool adjust,
+            Renderer renderer,
+            int slot,
+            ReFrameQuestShellBake.Options shell
+        )
         {
 
             var key = BakeKey(source) + "|adjust=" + adjust + "|fmt=" + CompressionFormat;
+            if (renderer != null)
+                key += "|shell=" + renderer.GetInstanceID() + "#" + slot + "|" + ShellSignature(shell);
             if (BakeCache.TryGetValue(key, out var cached))
                 return cached.Rebuild(source.name + "_Quest");
 
-            var baked = BakeLilToon(source, adjust);
+            var baked = BakeLilToon(source, adjust, renderer, slot, shell);
             if (baked == null)
                 return null;
             BakeCache[key] = new BakedTexture(baked);
@@ -808,8 +1029,17 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return path != null && path.EndsWith(".lilcontainer");
         }
 
+        static string ShellSignature(ReFrameQuestShellBake.Options shell) =>
+            shell.RimStrength + "," + shell.Gloss + "," + shell.Beyond + "," + shell.CutEmpty + "," + shell.AllSides + "," + shell.Size;
+
         /// <summary>lilToon のメインカラー・色調補正・追加レイヤーを 1 枚に焼く。</summary>
-        static Texture2D BakeLilToon(Material source, bool adjust = true)
+        static Texture2D BakeLilToon(
+            Material source,
+            bool adjust = true,
+            Renderer renderer = null,
+            int slot = -1,
+            ReFrameQuestShellBake.Options shell = default
+        )
         {
             var baker = Shader.Find(LilToonBakerShaderName);
             if (baker == null)
@@ -824,6 +1054,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var mainTexture = source.HasProperty("_MainTex") ? source.GetTexture("_MainTex") : null;
             var width = Mathf.Min(mainTexture != null ? mainTexture.width : 4, MaxTextureSize);
             var height = Mathf.Min(mainTexture != null ? mainTexture.height : 4, MaxTextureSize);
+            if (renderer != null && shell.Size > 0)
+            {
+                width = shell.Size;
+                height = shell.Size;
+            }
 
             var bakeMaterial = new Material(baker);
             try
@@ -862,6 +1097,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 CompositeEmission(source, baked);
                 CompositeMatCap(source, baked);
                 BlendBackdrop(source, baked);
+                if (renderer != null)
+                    ReFrameQuestShellBake.Composite(renderer, slot, baked, shell);
                 Compress(baked);
                 EnableMipStreaming(baked);
                 return baked;

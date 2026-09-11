@@ -142,6 +142,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     renderer,
                     materialOverrides
                 );
+                var meshOverride = ReFrameQuestMaterialPreview.CutShellMesh(renderer, materialOverrides);
 
                 var boneOverrides = ImmutableDictionary<Transform, BoneOverride>.Empty;
                 if (renderer is SkinnedMeshRenderer boneSmr && boneSmr.bones != null)
@@ -173,7 +174,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     localScale,
                     blendShapeWeights,
                     materialOverrides,
-                    boneOverrides
+                    boneOverrides,
+                    meshOverride
                 );
                 if (
                     overrideEnabled == currentlyVisible
@@ -183,6 +185,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     && blendShapeWeights.Count == 0
                     && materialOverrides.Count == 0
                     && boneOverrides.Count == 0
+                    && meshOverride == null
                 )
                     continue;
 
@@ -380,6 +383,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             public readonly ImmutableDictionary<string, float> BlendShapeWeights;
             public readonly ImmutableDictionary<int, Material> MaterialOverrides;
             public readonly ImmutableDictionary<Transform, BoneOverride> BoneOverrides;
+            public readonly Mesh MeshOverride;
 
             public PreviewData(
                 bool enabled,
@@ -388,9 +392,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 Vector3? localScale,
                 ImmutableDictionary<string, float> blendShapeWeights,
                 ImmutableDictionary<int, Material> materialOverrides,
-                ImmutableDictionary<Transform, BoneOverride> boneOverrides
+                ImmutableDictionary<Transform, BoneOverride> boneOverrides,
+                Mesh meshOverride
             )
             {
+                MeshOverride = meshOverride;
                 Enabled = enabled;
                 LocalPosition = localPosition;
                 LocalRotation = localRotation;
@@ -407,7 +413,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 && LocalScale == other.LocalScale
                 && DictionariesEqual(BlendShapeWeights, other.BlendShapeWeights)
                 && DictionariesEqual(MaterialOverrides, other.MaterialOverrides)
-                && DictionariesEqual(BoneOverrides, other.BoneOverrides);
+                && DictionariesEqual(BoneOverrides, other.BoneOverrides)
+                && MeshOverride == other.MeshOverride;
 
             static bool DictionariesEqual<TKey, TValue>(
                 ImmutableDictionary<TKey, TValue> a,
@@ -463,7 +470,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         {
             public RenderAspects WhatChanged =>
                 (_data.MaterialOverrides.Count > 0 ? RenderAspects.Material : 0)
-                | (_data.BlendShapeWeights.Count > 0 ? RenderAspects.Shapes : 0);
+                | (_data.BlendShapeWeights.Count > 0 ? RenderAspects.Shapes : 0)
+                | (_data.MeshOverride != null ? RenderAspects.Mesh : 0);
 
             readonly PreviewData _data;
 
@@ -493,6 +501,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     proxy.transform.localPosition = proxyPosition;
                     proxy.transform.localRotation = proxyRotation;
                     proxy.transform.localScale = proxyScale;
+                }
+
+                if (_data.MeshOverride != null)
+                {
+                    if (proxy is SkinnedMeshRenderer meshProxy)
+                        meshProxy.sharedMesh = _data.MeshOverride;
+                    else if (proxy.TryGetComponent<MeshFilter>(out var proxyFilter))
+                        proxyFilter.sharedMesh = _data.MeshOverride;
                 }
 
                 if (proxy is SkinnedMeshRenderer proxySmr && proxySmr.sharedMesh != null)

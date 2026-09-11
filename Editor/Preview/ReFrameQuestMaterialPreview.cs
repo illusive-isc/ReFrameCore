@@ -20,10 +20,67 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             AssemblyReloadEvents.beforeAssemblyReload += DestroyAll;
         }
 
+        /// <summary>膜を切ったメッシュの使い回し (元メッシュ + 焼き上がりテクスチャごと)。</summary>
+        static readonly Dictionary<(int Mesh, int Slot, int Texture), Mesh> CutMeshes =
+            new Dictionary<(int, int, int), Mesh>();
+
+        /// <summary>中身を焼き込んだ枠について、何も写らなかった膜を切ったメッシュ。切るものが無ければ null。</summary>
+        internal static Mesh CutShellMesh(Renderer renderer, ImmutableDictionary<int, Material> overrides)
+        {
+            var skinned = renderer as SkinnedMeshRenderer;
+            var filter = skinned == null ? renderer.GetComponent<MeshFilter>() : null;
+            var mesh = skinned != null ? skinned.sharedMesh : filter != null ? filter.sharedMesh : null;
+            if (mesh == null)
+                return null;
+            var sources = renderer.sharedMaterials;
+            Mesh result = null;
+            var shapeCuts = ReFrameQuestMaterialConverter.ShapeCutsOf(renderer);
+            if (shapeCuts != null)
+            {
+                foreach (var attr in shapeCuts)
+                {
+                    var key = ((result ?? mesh).GetInstanceID(), -1, string.Join(",", attr.Shapes).GetHashCode());
+                    if (!CutMeshes.TryGetValue(key, out var cut) || cut == null)
+                    {
+                        cut = ReFrameQuestAssetTrim.CutMovedByBlendShapes(result ?? mesh, attr.Shapes, attr.Tolerance, out _);
+                        if (cut != null)
+                            cut.hideFlags = HideFlags.HideAndDontSave;
+                        CutMeshes[key] = cut;
+                    }
+                    if (cut != null)
+                        result = cut;
+                }
+            }
+            for (var slot = 0; slot < sources.Length; slot++)
+            {
+                var drop = ReFrameQuestMaterialConverter.IsShellDropSlot(renderer, slot);
+                var cutEmpty = ReFrameQuestMaterialConverter.CutsEmptyShell(renderer, slot) && overrides.ContainsKey(slot);
+                if (!drop && !cutEmpty)
+                    continue;
+                var texture = drop ? (sources[slot] != null ? sources[slot].mainTexture : null) : overrides[slot]?.mainTexture;
+                if (texture == null)
+                    continue;
+                var key = ((result ?? mesh).GetInstanceID(), slot, texture.GetInstanceID());
+                if (!CutMeshes.TryGetValue(key, out var cut) || cut == null)
+                {
+                    cut = drop
+                        ? ReFrameQuestShellBake.CutShell(result ?? mesh, slot, texture)
+                        : ReFrameQuestShellBake.CutEmpty(result ?? mesh, slot, texture);
+                    if (cut != null)
+                        cut.hideFlags = HideFlags.HideAndDontSave;
+                    CutMeshes[key] = cut;
+                }
+                if (cut != null)
+                    result = cut;
+            }
+            return result;
+        }
+
         /// <summary>使い回しをやめる。</summary>
         internal static void Clear()
         {
             Cache.Clear();
+            CutMeshes.Clear();
             _hidden = null;
         }
 
@@ -34,6 +91,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (material != null)
                     Object.DestroyImmediate(material);
             Cache.Clear();
+            foreach (var mesh in CutMeshes.Values)
+                if (mesh != null)
+                    Object.DestroyImmediate(mesh);
+            CutMeshes.Clear();
             if (_hidden != null)
                 Object.DestroyImmediate(_hidden);
             _hidden = null;
@@ -122,7 +183,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (source.shader.name.StartsWith("VRChat/Mobile/"))
                     continue;
 
-                var converted = GetOrCreate(source, toonLit);
+                var converted = ReFrameQuestMaterialConverter.IsShellSlot(renderer, i)
+                    ? GetOrCreate(source, toonLit, renderer, i)
+                    : GetOrCreate(source, toonLit);
                 if (converted != null)
                     builder[i] = converted;
             }
@@ -154,7 +217,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             c.questShadowFromNormalMap,
                             c.questMaxTextureSize,
                             c.questBackdropOpacity,
-                            (UnityEngine.Object)c.questBakeSet
+                            (UnityEngine.Object)c.questBakeSet,
+                            TransparentChoiceSignature(c)
                         )
                 );
                 if (settings.QuestConversionActive)
@@ -162,6 +226,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
             return enabled;
         }
+
+        static string TransparentChoiceSignature(ReFrameDeleteComponent component) =>
+            component.QuestTransparentChoiceSignature();
 
         static Material _hidden;
 
@@ -181,18 +248,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return _hidden;
         }
 
-        static Material GetOrCreate(Material source, Shader toonLit)
+        static Material GetOrCreate(Material source, Shader toonLit, Renderer renderer = null, int slot = -1)
         {
-
-            var prebaked = ReFrameQuestMaterialConverter.FindBaked(source);
+            var slotKey = renderer != null ? ReFrameQuestMaterialConverter.SlotKey(renderer, slot) : null;
+            var prebaked = ReFrameQuestMaterialConverter.FindBaked(source, slotKey);
             if (prebaked != null)
                 return prebaked;
 
             var key = source.GetInstanceID() + "|" + ReFrameQuestMaterialConverter.BakeKey(source);
+            if (renderer != null)
+                key += "|shell=" + renderer.GetInstanceID() + "#" + slot;
             if (Cache.TryGetValue(key, out var cached) && cached != null)
                 return cached;
 
-            var material = ReFrameQuestMaterialConverter.CreateToonLit(source, toonLit, out var baked);
+            var material = ReFrameQuestMaterialConverter.CreateToonLit(source, toonLit, out var baked, renderer, slot);
             if (material == null)
                 return null;
             material.hideFlags = HideFlags.HideAndDontSave;

@@ -355,6 +355,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>選んだ結果どうなるか。</summary>
+        static string TransparentModeLabel(ReFrameQuestTransparentMode mode) =>
+            mode switch
+            {
+                ReFrameQuestTransparentMode.Drop => "袋だけ消して中身を残す",
+                ReFrameQuestTransparentMode.BakeInside => "中身を焼き込んで不透明にする",
+                _ => "そのまま不透明にする",
+            };
+
         static string MenuIconModeHelp(ReFrameMenuIconMode mode)
         {
             switch (mode)
@@ -1014,6 +1022,115 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 RefreshIcons();
                 iconBox.TrackPropertyValue(questProp, _ => RefreshIcons());
 
+                var transparentBox = new VisualElement();
+                transparentBox.style.marginBottom = 6;
+
+                void RefreshTransparent()
+                {
+                    transparentBox.Clear();
+                    if (!QuestEditing())
+                        return;
+                    var targets = new List<(ReFrameQuestTransparentAttribute Declared, ReFrameQuestTransparentMode Mode)>(
+                        component.EnumerateQuestTransparentTargets()
+                    );
+                    if (targets.Count == 0)
+                        return;
+
+                    var header = new Label("透過マテリアル");
+                    header.style.unityFontStyleAndWeight = FontStyle.Bold;
+                    header.style.marginBottom = 2;
+                    transparentBox.Add(header);
+
+                    var modes = new List<ReFrameQuestTransparentMode>
+                    {
+                        ReFrameQuestTransparentMode.BakeInside,
+                        ReFrameQuestTransparentMode.Drop,
+                        ReFrameQuestTransparentMode.Keep,
+                    };
+                    // 同じ名前の宣言は 1 行にまとめ、選択をまとめて書く。
+                    var groups = new List<(string Label, List<(ReFrameQuestTransparentAttribute Declared, ReFrameQuestTransparentMode Mode)> Items)>();
+                    foreach (var target in targets)
+                    {
+                        var label = string.IsNullOrEmpty(target.Declared.Label)
+                            ? target.Declared.Path + " [" + target.Declared.Slot + "]"
+                            : target.Declared.Label;
+                        var index = groups.FindIndex(g => g.Label == label);
+                        if (index < 0)
+                            groups.Add((label, new List<(ReFrameQuestTransparentAttribute, ReFrameQuestTransparentMode)> { target }));
+                        else
+                            groups[index].Items.Add(target);
+                    }
+                    foreach (var (label, items) in groups)
+                    {
+                        var field = new PopupField<ReFrameQuestTransparentMode>(
+                            label,
+                            modes,
+                            Mathf.Max(0, modes.IndexOf(items[0].Mode)),
+                            TransparentModeLabel,
+                            TransparentModeLabel
+                        );
+                        field.RegisterValueChangedCallback(evt =>
+                        {
+                            Undo.RecordObject(component, "ReFrame: 透過マテリアルの扱い");
+                            foreach (var (declared, _) in items)
+                                component.SetQuestTransparentChoice(declared.Path, declared.Slot, evt.newValue);
+                            EditorUtility.SetDirty(component);
+                            ReFrameQuestMaterialPreview.ResetScope();
+                            RefreshTransparent();
+                        });
+                        transparentBox.Add(field);
+
+                    }
+
+                    // 何も写らない所の色は 1 つで代表し、焼き込む枠すべてに書く。
+                    var baking = targets.FindAll(t => t.Mode == ReFrameQuestTransparentMode.BakeInside);
+                    if (baking.Count > 0)
+                    {
+                        var first = baking[0].Declared;
+                        var chosen = component.QuestTransparentBeyond(first.Path, first.Slot);
+                        var declaredColor = !string.IsNullOrEmpty(first.Beyond) && ColorUtility.TryParseHtmlString(first.Beyond, out var parsed)
+                            ? parsed
+                            : Color.gray;
+                        var row = new VisualElement();
+                        row.style.flexDirection = FlexDirection.Row;
+                        var colorField = new ColorField("袋の色") { value = chosen ?? declaredColor, showAlpha = false };
+                        colorField.style.flexGrow = 1;
+                        colorField.RegisterValueChangedCallback(evt =>
+                        {
+                            Undo.RecordObject(component, "ReFrame: 袋の色");
+                            foreach (var (declared, _) in baking)
+                                component.SetQuestTransparentBeyond(declared.Path, declared.Slot, evt.newValue);
+                            EditorUtility.SetDirty(component);
+                            ReFrameQuestMaterialPreview.ResetScope();
+                        });
+                        row.Add(colorField);
+                        var reset = new Button(() =>
+                        {
+                            Undo.RecordObject(component, "ReFrame: 袋の色");
+                            foreach (var (declared, _) in baking)
+                                component.SetQuestTransparentBeyond(declared.Path, declared.Slot, null);
+                            EditorUtility.SetDirty(component);
+                            ReFrameQuestMaterialPreview.ResetScope();
+                            RefreshTransparent();
+                        })
+                        {
+                            text = "既定",
+                        };
+                        reset.SetEnabled(chosen.HasValue);
+                        row.Add(reset);
+                        transparentBox.Add(row);
+                    }
+                    transparentBox.Add(
+                        new HelpBox(
+                            "Toon Lit には透過が無いので、中身を焼き込んで不透明にする / 袋だけ消して中身を残す / そのまま不透明にする、から選びます。",
+                            HelpBoxMessageType.None
+                        )
+                    );
+                }
+
+                RefreshTransparent();
+                transparentBox.TrackPropertyValue(questProp, _ => RefreshTransparent());
+
                 var bakeBox = new VisualElement();
                 bakeBox.style.marginBottom = 6;
 
@@ -1155,6 +1272,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 questSection.Add(textureSizeBox);
                 questSection.Add(cutBox);
                 questSection.Add(iconBox);
+                questSection.Add(transparentBox);
                 questSection.Add(bakeBox);
                 questSection.Add(aaoNotice);
 

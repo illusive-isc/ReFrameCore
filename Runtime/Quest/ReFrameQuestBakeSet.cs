@@ -17,6 +17,9 @@ namespace jp.illusive_isc.ReFrame.Core
 
             /// <summary>焼いたときの設定の指紋。</summary>
             public string Signature;
+
+            /// <summary>枠ごとに焼いたもの ("path#slot")。マテリアル単位なら空。</summary>
+            public string Slot;
         }
 
         [SerializeField]
@@ -28,13 +31,19 @@ namespace jp.illusive_isc.ReFrame.Core
         /// <summary>焼いたときのアバターの設定の指紋 (明度・解像度など)。</summary>
         public string Signature;
 
-        /// <summary>そのマテリアルの焼き上がりを引く。</summary>
-        public Material Find(Material source)
+        /// <summary>そのマテリアル (枠ごとに焼いたものは枠も指定) の焼き上がりを引く。</summary>
+        public Material Find(Material source, string slot = null)
         {
             if (source == null)
                 return null;
+            slot ??= string.Empty;
             foreach (var entry in entries)
-                if (entry != null && entry.Source == source && entry.Baked != null)
+                if (
+                    entry != null
+                    && entry.Source == source
+                    && entry.Baked != null
+                    && (entry.Slot ?? string.Empty) == slot
+                )
                     return entry.Baked;
             return null;
         }

@@ -52,6 +52,101 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return removed;
         }
 
+        /// <summary>[ReFrameQuestCutByBlendShape] の宣言に従って、指定 BlendShape が動かす三角形を削る。</summary>
+        internal static int CutByBlendShape(BuildContext context)
+        {
+            var root = context.AvatarRootTransform;
+            var cut = 0;
+            foreach (var component in ReFrameDeleteComponent.ActiveIn(root))
+            {
+                if (component == null)
+                    continue;
+                foreach (
+                    var attr in (ReFrameQuestCutByBlendShapeAttribute[])
+                        System.Attribute.GetCustomAttributes(
+                            component.GetType(),
+                            typeof(ReFrameQuestCutByBlendShapeAttribute),
+                            true
+                        )
+                )
+                {
+                    if (string.IsNullOrEmpty(attr.Path))
+                        continue;
+                    var target = root.Find(attr.Path);
+                    if (target == null)
+                        continue;
+                    foreach (var renderer in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    {
+                        var clone = CutMovedByBlendShapes(renderer.sharedMesh, attr.Shapes, attr.Tolerance, out var removed);
+                        if (clone == null)
+                            continue;
+                        context.AssetSaver.SaveAsset(clone);
+                        ObjectRegistry.RegisterReplacedObject(renderer.sharedMesh, clone);
+                        renderer.sharedMesh = clone;
+                        cut += removed;
+                    }
+                }
+            }
+            return cut;
+        }
+
+        /// <summary>3 頂点すべてが指定 BlendShape のどれかで動く三角形を全サブメッシュから外したメッシュを返す。無ければ null。</summary>
+        internal static Mesh CutMovedByBlendShapes(Mesh mesh, string[] shapes, float tolerance, out int removed)
+        {
+            removed = 0;
+            if (mesh == null || shapes == null || shapes.Length == 0)
+                return null;
+            var moved = new bool[mesh.vertexCount];
+            var deltas = new Vector3[mesh.vertexCount];
+            var normals = new Vector3[mesh.vertexCount];
+            var tangents = new Vector3[mesh.vertexCount];
+            var any = false;
+            foreach (var name in shapes)
+            {
+                var index = mesh.GetBlendShapeIndex(name);
+                if (index < 0)
+                {
+                    Debug.LogWarning($"[ReFrameCore] BlendShape '{name}' が '{mesh.name}' にありません。");
+                    continue;
+                }
+                mesh.GetBlendShapeFrameVertices(index, mesh.GetBlendShapeFrameCount(index) - 1, deltas, normals, tangents);
+                for (var i = 0; i < moved.Length; i++)
+                    if (deltas[i].magnitude >= tolerance)
+                        moved[i] = any = true;
+            }
+            if (!any)
+                return null;
+
+            Mesh clone = null;
+            for (var slot = 0; slot < mesh.subMeshCount; slot++)
+            {
+                var triangles = mesh.GetTriangles(slot);
+                var kept = new List<int>(triangles.Length);
+                var cutHere = 0;
+                for (var i = 0; i + 2 < triangles.Length; i += 3)
+                {
+                    if (moved[triangles[i]] && moved[triangles[i + 1]] && moved[triangles[i + 2]])
+                    {
+                        cutHere++;
+                        continue;
+                    }
+                    kept.Add(triangles[i]);
+                    kept.Add(triangles[i + 1]);
+                    kept.Add(triangles[i + 2]);
+                }
+                if (cutHere == 0)
+                    continue;
+                if (clone == null)
+                {
+                    clone = Object.Instantiate(mesh);
+                    clone.name = mesh.name;
+                }
+                clone.SetTriangles(kept, slot);
+                removed += cutHere;
+            }
+            return clone;
+        }
+
         /// <summary>[ReFrameQuestCutTransparent] の宣言に従って、透明な三角形を削る。</summary>
         internal static int CutTransparent(BuildContext context)
         {
@@ -151,7 +246,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>テクスチャのアルファを読み出す。</summary>
-        static float[] ReadAlpha(Texture texture, out int size)
+        internal static float[] ReadAlpha(Texture texture, out int size)
         {
             size = Mathf.Clamp(Mathf.Max(texture.width, texture.height), 64, 512);
             var rt = RenderTexture.GetTemporary(size, size, 0, RenderTextureFormat.ARGB32);
@@ -177,7 +272,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
         }
 
-        static float Sample(float[] alpha, int size, Vector2 uv)
+        internal static float Sample(float[] alpha, int size, Vector2 uv)
         {
             var x = Mathf.Clamp(Mathf.RoundToInt(Mathf.Repeat(uv.x, 1f) * (size - 1)), 0, size - 1);
             var y = Mathf.Clamp(Mathf.RoundToInt(Mathf.Repeat(uv.y, 1f) * (size - 1)), 0, size - 1);

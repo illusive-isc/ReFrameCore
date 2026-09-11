@@ -353,6 +353,94 @@ namespace jp.illusive_isc.ReFrame.Core
         [SerializeField]
         public List<string> deletedPhysBoneColliders = new();
 
+        /// <summary>[ReFrameQuestTransparent] の枠ごとに Inspector で選んだ扱い (未選択なら宣言の既定)。</summary>
+        [SerializeField]
+        public List<ReFrameQuestTransparentChoice> questTransparentChoices = new();
+
+        /// <summary>この枠に対する Inspector での選択。無ければ null。</summary>
+        public ReFrameQuestTransparentMode? QuestTransparentChoice(string path, int slot)
+        {
+            foreach (var choice in questTransparentChoices)
+                if (choice.Path == path && choice.Slot == slot && System.Enum.IsDefined(typeof(ReFrameQuestTransparentMode), choice.Mode))
+                    return choice.Mode;
+            return null;
+        }
+
+        /// <summary>この枠の扱いを選ぶ (色の選択は保つ)。</summary>
+        public void SetQuestTransparentChoice(string path, int slot, ReFrameQuestTransparentMode mode)
+        {
+            var choice = FindOrAddChoice(path, slot, out var index);
+            choice.Mode = mode;
+            questTransparentChoices[index] = choice;
+        }
+
+        /// <summary>この枠の「何も写らない所の色」を選ぶ (null で宣言の既定に戻す)。</summary>
+        public void SetQuestTransparentBeyond(string path, int slot, Color? beyond)
+        {
+            var choice = FindOrAddChoice(path, slot, out var index);
+            choice.UseBeyond = beyond.HasValue;
+            choice.Beyond = beyond ?? default;
+            questTransparentChoices[index] = choice;
+        }
+
+        /// <summary>この枠に選んだ色。無ければ null。</summary>
+        public Color? QuestTransparentBeyond(string path, int slot)
+        {
+            foreach (var choice in questTransparentChoices)
+                if (choice.Path == path && choice.Slot == slot && choice.UseBeyond)
+                    return choice.Beyond;
+            return null;
+        }
+
+        ReFrameQuestTransparentChoice FindOrAddChoice(string path, int slot, out int index)
+        {
+            for (index = 0; index < questTransparentChoices.Count; index++)
+                if (questTransparentChoices[index].Path == path && questTransparentChoices[index].Slot == slot)
+                    return questTransparentChoices[index];
+            var created = new ReFrameQuestTransparentChoice { Path = path, Slot = slot, Mode = DeclaredTransparentMode(path, slot) };
+            questTransparentChoices.Add(created);
+            return created;
+        }
+
+        ReFrameQuestTransparentMode DeclaredTransparentMode(string path, int slot)
+        {
+            foreach (
+                var attr in (ReFrameQuestTransparentAttribute[])
+                    System.Attribute.GetCustomAttributes(GetType(), typeof(ReFrameQuestTransparentAttribute), true)
+            )
+                if (attr.Path == path && attr.Slot == slot)
+                    return attr.Mode;
+            return ReFrameQuestTransparentMode.BakeInside;
+        }
+
+        /// <summary>[ReFrameQuestTransparent] の宣言と、選択を反映した扱い。</summary>
+        public IEnumerable<(ReFrameQuestTransparentAttribute Declared, ReFrameQuestTransparentMode Mode)> EnumerateQuestTransparentTargets()
+        {
+            foreach (
+                var attr in (ReFrameQuestTransparentAttribute[])
+                    System.Attribute.GetCustomAttributes(GetType(), typeof(ReFrameQuestTransparentAttribute), true)
+            )
+            {
+                if (string.IsNullOrEmpty(attr.Path))
+                    continue;
+                yield return (attr, QuestTransparentChoice(attr.Path, attr.Slot) ?? attr.Mode);
+            }
+        }
+
+        /// <summary>透過マテリアルの選択 (扱いと色) を 1 つの文字列にまとめる (変更検知用)。</summary>
+        public string QuestTransparentChoiceSignature()
+        {
+            var builder = new System.Text.StringBuilder();
+            foreach (var choice in questTransparentChoices)
+            {
+                builder.Append(choice.Path).Append('#').Append(choice.Slot).Append('=').Append(choice.Mode);
+                if (choice.UseBeyond)
+                    builder.Append('@').Append(ColorUtility.ToHtmlStringRGB(choice.Beyond));
+                builder.Append(';');
+            }
+            return builder.ToString();
+        }
+
         /// <summary>ビルドの最後 (Optimizing フェーズ) に実体を破棄するか。</summary>
         public virtual bool SweepUnusedObjects => sweepMode == ReFrameSweepMode.Sweep;
 

@@ -38,6 +38,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     CollectDesiredHidden(descriptor, desiredHidden);
             }
 
+            KeepTopRowsVisible(desiredHidden);
             KeepReFrameComponentsVisible(desiredHidden);
 
             var previouslyHidden = new HashSet<GameObject>(s_hiddenByUs);
@@ -88,6 +89,40 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             if (changed)
                 EditorApplication.RepaintHierarchyWindow();
+        }
+
+        /// <summary>消える塊の一番上の行は残し、その配下だけを隠す。一番上まで隠すと Hierarchy から見つけられず取り外せなくなるため。</summary>
+        static void KeepTopRowsVisible(HashSet<GameObject> desiredHidden)
+        {
+            if (desiredHidden.Count == 0)
+                return;
+            var tops = new List<GameObject>();
+            foreach (var go in desiredHidden)
+            {
+                if (go == null)
+                    continue;
+                var parent = go.transform.parent;
+                if (parent == null || !desiredHidden.Contains(parent.gameObject))
+                    tops.Add(go);
+            }
+            // 親の子が全部消えるなら親の行を残し、その配下 (この塊を含む) を隠したままにする。
+            var keep = new List<GameObject>();
+            foreach (var top in tops)
+            {
+                var parent = top.transform.parent;
+                var wholeGroup = parent != null && parent.childCount > 1;
+                for (var i = 0; wholeGroup && i < parent.childCount; i++)
+                    wholeGroup = desiredHidden.Contains(parent.GetChild(i).gameObject);
+                if (!wholeGroup)
+                    keep.Add(top);
+            }
+            foreach (var top in keep)
+            {
+                desiredHidden.Remove(top);
+                foreach (var child in top.GetComponentsInChildren<Transform>(true))
+                    if (child.gameObject != top)
+                        desiredHidden.Add(child.gameObject);
+            }
         }
 
         /// <summary>ReFrameDeleteComponent が乗っている GameObject と、そこへ辿り着くための先祖を 非表示対象から外す。</summary>

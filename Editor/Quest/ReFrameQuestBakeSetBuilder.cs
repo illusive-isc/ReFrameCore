@@ -35,6 +35,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             EnsureFolder(path);
 
             var signature = CurrentSignature(descriptor);
+            using var questSide = new QuestSideScope(descriptor);
             ReFrameQuestMaterialConverter.PrepareSettings(root);
 
             ReFrameQuestMaterialConverter.ClearBakeSet();
@@ -46,17 +47,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             AssetDatabase.CreateAsset(target, path);
 
             var entries = new List<ReFrameQuestBakeSet.Entry>();
-            var seen = new HashSet<Material>();
+            var seen = new HashSet<(Material, string)>();
             var sources = CollectSources(root);
             var index = 0;
 
             ReFrameQuestMaterialConverter.ForceQuestFormat = true;
             try
             {
-                foreach (var source in sources)
+                foreach (var (source, renderer, slot) in sources)
                 {
                     index++;
-                    if (source == null || !seen.Add(source))
+                    var slotKey = renderer != null
+                        ? ReFrameQuestMaterialConverter.SlotKey(renderer, slot)
+                        : string.Empty;
+                    if (source == null || !seen.Add((source, slotKey)))
                         continue;
                     EditorUtility.DisplayProgressBar(
                         "Quest 用マテリアルを焼いています",
@@ -67,15 +71,18 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     var baked = ReFrameQuestMaterialConverter.CreateToonLit(
                         source,
                         toonLit,
-                        out var texture
+                        out var texture,
+                        renderer,
+                        slot
                     );
                     if (baked == null)
                         continue;
-                    baked.name = source.name + " (Quest)";
+                    var suffix = renderer != null ? " (Quest " + slotKey + ")" : " (Quest)";
+                    baked.name = source.name + suffix;
                     AssetDatabase.AddObjectToAsset(baked, target);
                     if (texture != null)
                     {
-                        texture.name = source.name + " (Quest Texture)";
+                        texture.name = source.name + suffix.Replace(")", " Texture)");
                         AssetDatabase.AddObjectToAsset(texture, target);
                     }
                     entries.Add(
@@ -84,6 +91,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             Source = source,
                             Baked = baked,
                             Signature = signature,
+                            Slot = slotKey,
                         }
                     );
                 }
@@ -166,12 +174,13 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (descriptor == null)
                 return string.Empty;
             var root = descriptor.transform;
+            using var questSide = new QuestSideScope(descriptor);
             ReFrameQuestMaterialConverter.PrepareSettings(root);
 
             var builder = new System.Text.StringBuilder();
             builder.Append(ReFrameQuestMaterialConverter.SettingsSignature(root)).Append((char)10);
             var seen = new HashSet<Material>();
-            foreach (var source in CollectSources(root))
+            foreach (var (source, renderer, slot) in CollectSources(root))
             {
                 if (source == null || !seen.Add(source))
                     continue;
@@ -194,6 +203,31 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return builder.ToString();
         }
 
+        /// <summary>この間だけ Quest 簡易対応版を「使われる側」にする。置き場の指紋と焼き込みが、プレビューの切り替えやビルドターゲットに左右されないようにするため。</summary>
+        readonly struct QuestSideScope : System.IDisposable
+        {
+            readonly int key;
+            readonly bool had;
+            readonly bool previous;
+
+            public QuestSideScope(VRCAvatarDescriptor descriptor)
+            {
+                key = descriptor.gameObject.GetInstanceID();
+                had = ReFrameDeleteComponent.PreviewQuestOverride.TryGetValue(key, out previous);
+                ReFrameDeleteComponent.PreviewQuestOverride[key] = true;
+                ReFrameQuestMaterialPreview.ResetScope();
+            }
+
+            public void Dispose()
+            {
+                if (had)
+                    ReFrameDeleteComponent.PreviewQuestOverride[key] = previous;
+                else
+                    ReFrameDeleteComponent.PreviewQuestOverride.Remove(key);
+                ReFrameQuestMaterialPreview.ResetScope();
+            }
+        }
+
         /// <summary>焼き済みが古くなっているか。</summary>
         internal static bool IsStale(VRCAvatarDescriptor descriptor, ReFrameQuestBakeSet set)
         {
@@ -202,10 +236,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return set.Signature != CurrentSignature(descriptor);
         }
 
-        /// <summary>焼く対象。</summary>
-        static List<Material> CollectSources(Transform root)
+        /// <summary>焼く対象。中身を焼き込む枠は Renderer と枠番号も持つ。</summary>
+        static List<(Material Material, Renderer Renderer, int Slot)> CollectSources(Transform root)
         {
-            var result = new List<Material>();
+            var result = new List<(Material, Renderer, int)>();
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
             {
                 if (renderer is ParticleSystemRenderer)
@@ -224,7 +258,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         continue;
                     if (ReFrameQuestMaterialConverter.IsDroppedSlot(renderer, i))
                         continue;
-                    result.Add(material);
+                    if (ReFrameQuestMaterialConverter.IsShellSlot(renderer, i))
+                    {
+                        result.Add((material, renderer, i));
+                        continue;
+                    }
+                    result.Add((material, null, -1));
                 }
             }
             return result;
