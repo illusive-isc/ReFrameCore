@@ -888,6 +888,26 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
+        /// <summary>[ReFrameCutByBlendShape] で切る (行が固定され、Value が一致するもの)。</summary>
+        public IEnumerable<(string Path, string[] Shapes, float Tolerance)> EnumerateCutByBlendShapeTargets()
+        {
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                var entry = (ReFrameDeleteEntry)field.GetValue(this);
+                if (!entry.Enabled)
+                    continue;
+                foreach (var attr in field.GetCustomAttributes<ReFrameCutByBlendShapeAttribute>(true))
+                {
+                    if (attr.QuestOnly && !QuestConversionActive)
+                        continue;
+                    if (Mathf.Abs(entry.Value - attr.OnlyWhenValue) < 0.01f && !string.IsNullOrEmpty(attr.Path))
+                        yield return (attr.Path, attr.Shapes, attr.Tolerance);
+                }
+            }
+        }
+
         /// <summary>[ReFrameBlendShape] で固定する BlendShape。</summary>
         public IEnumerable<(string Path, string ShapeName, float Weight)> EnumerateBlendShapeTargets()
         {

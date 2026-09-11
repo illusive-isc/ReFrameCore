@@ -103,6 +103,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 ApplyAlwaysTreeOverrides(context, components);
                 FollowMergeArmatureBones(context, localTransformsBeforeBake);
                 ApplyBlendShapes(context, components);
+                CutByBlendShapes(context, components);
 
                 if (components.Any(c => c != null && c.EnumerateMenuRemovals().Any()))
                     ProcessMenus(context, new string[0], components);
@@ -228,6 +229,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     .ToArray();
 
                 ApplyBlendShapes(context, components);
+                CutByBlendShapes(context, components);
                 DeleteObjects(context, components);
                 ApplyMaxParticles(context, maxParticleTargets);
 
@@ -797,6 +799,37 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>[ReFrameBlendShape] の固定を SkinnedMeshRenderer に書く。</summary>
+        /// <summary>[ReFrameCutByBlendShape] の行が固定されていれば、その BlendShape が動かす三角形を切る。</summary>
+        static void CutByBlendShapes(BuildContext context, ReFrameDeleteComponent[] components)
+        {
+            var root = context.AvatarRootTransform;
+            var log = new List<string>();
+            foreach (var component in components)
+            {
+                if (component == null)
+                    continue;
+                foreach (var (path, shapes, tolerance) in component.EnumerateCutByBlendShapeTargets())
+                {
+                    var transform = root.Find(path);
+                    var renderer = transform != null ? transform.GetComponent<SkinnedMeshRenderer>() : null;
+                    if (renderer == null || renderer.sharedMesh == null)
+                    {
+                        Debug.LogWarning($"[ReFrameCore] ReFrameDeletePass: [ReFrameCutByBlendShape] '{path}' に SkinnedMeshRenderer が無いので飛ばしました。");
+                        continue;
+                    }
+                    var clone = ReFrameQuestAssetTrim.CutMovedByBlendShapes(renderer.sharedMesh, shapes, tolerance, out var removed);
+                    if (clone == null)
+                        continue;
+                    context.AssetSaver.SaveAsset(clone);
+                    ObjectRegistry.RegisterReplacedObject(renderer.sharedMesh, clone);
+                    renderer.sharedMesh = clone;
+                    log.Add($"{path}: {string.Join(", ", shapes)} -> {removed} 枚");
+                }
+            }
+            if (log.Count > 0)
+                Debug.Log("[ReFrameCore] ReFrameDeletePass: BlendShape で動く三角形を切りました。\n  " + string.Join("\n  ", log));
+        }
+
         static void ApplyBlendShapes(BuildContext context, ReFrameDeleteComponent[] components)
         {
             var targets = components

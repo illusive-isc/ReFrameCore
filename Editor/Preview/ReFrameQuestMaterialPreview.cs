@@ -34,6 +34,31 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 return null;
             var sources = renderer.sharedMaterials;
             Mesh result = null;
+            var descriptor = renderer.GetComponentInParent<VRCAvatarDescriptor>(true);
+            if (descriptor != null)
+            {
+                var path = AnimationUtility.CalculateTransformPath(renderer.transform, descriptor.transform);
+                foreach (var component in ReFrameDeleteComponent.ActiveIn(descriptor))
+                {
+                    if (component == null)
+                        continue;
+                    foreach (var (targetPath, shapes, tolerance) in component.EnumerateCutByBlendShapeTargets())
+                    {
+                        if (targetPath != path)
+                            continue;
+                        var key = ((result ?? mesh).GetInstanceID(), -2, (string.Join(",", shapes) + tolerance).GetHashCode());
+                        if (!CutMeshes.TryGetValue(key, out var cut) || cut == null)
+                        {
+                            cut = ReFrameQuestAssetTrim.CutMovedByBlendShapes(result ?? mesh, shapes, tolerance, out _);
+                            if (cut != null)
+                                cut.hideFlags = HideFlags.HideAndDontSave;
+                            CutMeshes[key] = cut;
+                        }
+                        if (cut != null)
+                            result = cut;
+                    }
+                }
+            }
             var shapeCuts = ReFrameQuestMaterialConverter.ShapeCutsOf(renderer);
             if (shapeCuts != null)
             {
