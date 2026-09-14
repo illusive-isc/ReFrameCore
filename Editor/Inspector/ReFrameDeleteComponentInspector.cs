@@ -90,6 +90,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>[ReFrameBundleMember] の代表パラメーター名 (無ければ null)。</summary>
             public string BundleRepresentative;
 
+            /// <summary>[ReFrameBundleMember(Always = true)]: 代表の値を問わず、代表が削除中なら道連れ。</summary>
+            public bool BundleAlways;
+
             /// <summary>代表に道連れで消えるときも値を選ばせるか (ValueMatters)。</summary>
             public bool BundleValueMatters;
 
@@ -2193,6 +2196,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var bundle = field.GetCustomAttribute<ReFrameBundleMemberAttribute>(true);
                 entry.BundleRepresentative = bundle?.RepresentativeParameterName;
                 entry.BundleValueMatters = bundle?.ValueMatters ?? false;
+                entry.BundleAlways = bundle?.Always ?? false;
                 foreach (var link in field.GetCustomAttributes<ReFrameLinkedWithAttribute>(true))
                     entry.LinkedParameters.Add(link.ParameterName);
 
@@ -2681,20 +2685,25 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
 
                 if (questForced)
-                    return entry.ParameterNames;
+                    return entry.ParameterNames.Concat(entry.ParameterNames.Select(n => ReFrameDeleteComponent.AnyValuePrefix + n));
                 if (!enabledProp.boolValue)
                     return System.Linq.Enumerable.Empty<string>();
+                // 値を問わず削除中の印 (AnyValuePrefix 付き) は常に返し、素の名前は OFF 値のときだけ
+                // (ReFrameDeleteComponent.CollectDeletingRepresentativeParameterNames と同じ規則)。
+                var anyValue = entry.ParameterNames.Select(n => ReFrameDeleteComponent.AnyValuePrefix + n);
                 var effective = entry.LockedValue ?? valueProp.floatValue;
                 return Mathf.Approximately(effective, entry.Reversed ? 1f : 0f)
-                    ? entry.ParameterNames
-                    : System.Linq.Enumerable.Empty<string>();
+                    ? entry.ParameterNames.Concat(anyValue)
+                    : anyValue;
             });
 
             if (!string.IsNullOrEmpty(entry.BundleRepresentative))
             {
                 _cascadeRefreshers.Add(deleting =>
                 {
-                    cascadedByRepresentative = deleting.Contains(entry.BundleRepresentative);
+                    cascadedByRepresentative = deleting.Contains(
+                        (entry.BundleAlways ? ReFrameDeleteComponent.AnyValuePrefix : string.Empty) + entry.BundleRepresentative
+                    );
 
                     RefreshRow();
                 });

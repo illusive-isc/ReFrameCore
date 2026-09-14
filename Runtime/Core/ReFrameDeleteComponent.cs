@@ -669,6 +669,10 @@ namespace jp.illusive_isc.ReFrame.Core
                 if (!entry.Enabled && !IsQuestForcedDeleting(field))
                     continue;
 
+                // 値を問わず削除中の代表は AnyValuePrefix 付きでも入れる ([ReFrameBundleMember(Always = true)] 用)。
+                foreach (var attr in field.GetCustomAttributes<ReFrameDeleteAttribute>(true))
+                    result.Add(AnyValuePrefix + attr.ParameterName);
+
                 if (!Mathf.Approximately(ResolveEffectiveValue(field, entry), OffValueOf(field)))
                     continue;
 
@@ -678,6 +682,9 @@ namespace jp.illusive_isc.ReFrame.Core
             return result;
         }
 
+        /// <summary>CollectDeletingRepresentativeParameterNames で「値を問わず削除中」の代表に付ける印。</summary>
+        public const string AnyValuePrefix = "*";
+
         /// <summary>field が [ReFrameBundleMember] を持ち、その代表がすでに (実際にこのギミックごと消える 設定で) 削除中であれば true。</summary>
         static bool IsCascadedFromBundleRepresentative(
             FieldInfo field,
@@ -685,8 +692,11 @@ namespace jp.illusive_isc.ReFrame.Core
         )
         {
             var bundleMemberAttr = field.GetCustomAttribute<ReFrameBundleMemberAttribute>(true);
-            return bundleMemberAttr != null
-                && deletingRepresentativeParams.Contains(bundleMemberAttr.RepresentativeParameterName);
+            if (bundleMemberAttr == null)
+                return false;
+            return deletingRepresentativeParams.Contains(
+                (bundleMemberAttr.Always ? AnyValuePrefix : string.Empty) + bundleMemberAttr.RepresentativeParameterName
+            );
         }
 
         /// <summary>このコンポーネントが持つ ReFrameDeleteEntry 型フィールドのうち ReFrameDeleteAttribute が付き、Enabled が true (または [ReFrameBundleMember] の代表がすでに削除中で道連れになる) のものを (パラメーター名, 固定値, MenuOnlyか) の組として列挙する。</summary>
