@@ -926,7 +926,36 @@ namespace jp.illusive_isc.ReFrame.Core
                 if (!entry.Enabled)
                     continue;
                 foreach (var attr in field.GetCustomAttributes<ReFrameBlendShapeAttribute>(true))
-                    yield return (attr.Path, attr.ShapeName, Mathf.Clamp(entry.Value, 0f, 100f) * attr.Scale);
+                {
+                    if (!attr.SceneApply)
+                        continue;
+                    foreach (var path in ExpandBlendShapePaths(attr.Path, attr.ShapeName))
+                        yield return (path, attr.ShapeName, Mathf.Clamp(entry.Value, 0f, 100f) * attr.Scale);
+                }
+            }
+        }
+
+        /// <summary>[ReFrameBlendShape] の Path を実際のメッシュのパスに展開する。"*" なら、アバター内で
+        /// その BlendShape を持つ全 SkinnedMeshRenderer (非アクティブ含む) のアバタールート相対パス。</summary>
+        IEnumerable<string> ExpandBlendShapePaths(string path, string shapeName)
+        {
+            if (path != ReFrameBlendShapeAttribute.AnyMesh)
+            {
+                yield return path;
+                yield break;
+            }
+
+            var descriptor = GetComponentInParent<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor>();
+            var root = descriptor != null ? descriptor.transform : transform.root;
+            foreach (var smr in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (smr.sharedMesh == null || smr.sharedMesh.GetBlendShapeIndex(shapeName) < 0)
+                    continue;
+                var segments = new List<string>();
+                for (var t = smr.transform; t != null && t != root; t = t.parent)
+                    segments.Insert(0, t.name);
+                if (segments.Count > 0)
+                    yield return string.Join("/", segments);
             }
         }
 
@@ -950,18 +979,21 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
-        /// <summary>[ReFrameBlendShape] で固定する BlendShape。</summary>
+        /// <summary>[ReFrameBlendShape] で固定する BlendShape。行が Enabled か、[ReFrameBundleMember] の代表の道連れで削除中のもの。</summary>
         public IEnumerable<(string Path, string ShapeName, float Weight)> EnumerateBlendShapeTargets()
         {
+            var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
+
             foreach (var field in GetType().GetFields(FieldFlags))
             {
                 if (field.FieldType != typeof(ReFrameDeleteEntry))
                     continue;
                 var entry = (ReFrameDeleteEntry)field.GetValue(this);
-                if (!entry.Enabled)
+                if (!IsDeleting(field, entry, deletingRepresentativeParams))
                     continue;
                 foreach (var attr in field.GetCustomAttributes<ReFrameBlendShapeAttribute>(true))
-                    yield return (attr.Path, attr.ShapeName, Mathf.Clamp(entry.Value, 0f, 100f) * attr.Scale);
+                    foreach (var path in ExpandBlendShapePaths(attr.Path, attr.ShapeName))
+                        yield return (path, attr.ShapeName, Mathf.Clamp(entry.Value, 0f, 100f) * attr.Scale);
             }
         }
 

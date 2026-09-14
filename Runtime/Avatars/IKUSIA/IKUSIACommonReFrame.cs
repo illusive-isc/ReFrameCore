@@ -57,8 +57,10 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // BreastSize は 0 (胸_小 100) / 0.5 (どちらも 0) / 1 (胸_大 100) の 1D BlendTree で、途中の値は
         // 2 つのシェイプの混ざり + 髪の回転 + 胸 PhysBone の ON/OFF (0.3 以下で OFF) を伴う。行としては
         // 中立 (0.5) に固定してギミックだけ消し、実際の胸の形はアバター側の [ReFrameBlendShape] 行
-        // (kaguya: 胸_大 / 胸_小、この行の道連れとして下に並ぶ) で直接決める。
-        [ReFrameApplyToAvatar]
+        // (kaguya: 胸_大 / 胸_小、この行の道連れとして下に並ぶ) で直接決める。この行自体には
+        // [ReFrameApplyToAvatar] を付けない: 付けるとアニメーターの 0.5 時点の重み (全部 0) を先にシーンへ
+        // 書いてからシェイプ行が上書きする二度手間になるだけで、シェイプ行がアニメーターの触る
+        // シェイプを全部カバーしているので不要。
         [ReFrameDelete("BreastSize", ReFrameParameterType.Float)]
         [ReFrameValueLocked(0.5f, Label = "下のシェイプで指定")]
         [ReFrameLabel("胸サイズ")]
