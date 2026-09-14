@@ -24,12 +24,22 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>true なら、固定した値の枝のクリップをアバターへ焼き付けない ([ReFrameNoBake])。</summary>
             public readonly bool NoBake;
 
-            public ParameterTarget(string name, float value, bool cutTransitions = false, bool noBake = false)
+            /// <summary>true なら、このパラメーターで選ぶ BlendTree は固定した値の枝 1 本に畳むだけで、 焼き付けもモーションの削除もしない ([ReFrameCollapseBlendTree])。</summary>
+            public readonly bool CollapseOnly;
+
+            public ParameterTarget(
+                string name,
+                float value,
+                bool cutTransitions = false,
+                bool noBake = false,
+                bool collapseOnly = false
+            )
             {
                 Name = name;
                 Value = value;
                 CutTransitions = cutTransitions;
                 NoBake = noBake;
+                CollapseOnly = collapseOnly;
             }
 
             public ParameterTarget(string name, bool value)
@@ -57,6 +67,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             // [ReFrameNoBake] のパラメーターは、自分の番だけでなく他のパラメーターの処理中に allValues 経由で
             // 入れ子のツリーが解決されるときも焼き付けないので、静的に持って CleanMotion 側で参照する。
             NoBakeParameters = new HashSet<string>(targets.Where(t => t.NoBake).Select(t => t.Name));
+            CollapseOnlyParameters = new HashSet<string>(
+                targets.Where(t => t.CollapseOnly).Select(t => t.Name)
+            );
             try
             {
                 var changed = false;
@@ -80,6 +93,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             finally
             {
                 NoBakeParameters = EmptyNoBake;
+                CollapseOnlyParameters = EmptyNoBake;
                 CurrentBakeParameter = null;
             }
         }
@@ -100,6 +114,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         static HashSet<string> NoBakeParameters = EmptyNoBake;
 
         static readonly HashSet<string> EmptyNoBake = new();
+
+        /// <summary>RemoveParameters の実行中だけ有効な、固定した値の枝に畳むだけで焼かない・消さない パラメーター名 ([ReFrameCollapseBlendTree])。</summary>
+        static HashSet<string> CollapseOnlyParameters = EmptyNoBake;
 
         /// <summary>焼き付けでマテリアルのプロパティを書くときに、書いてよい (複製済みの) マテリアルを 返す関数。</summary>
         public static System.Func<Renderer, int, Material> MaterialWriter;
@@ -643,6 +660,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             bool conditional
         )
         {
+            // [ReFrameCollapseBlendTree] のツリーは、選ばれた枝がクリップでも焼かずにそのまま残す
+            // (下の conditional と同じ経路: クリップならそれを返し、中間値なら定数クリップにする)。
+            conditional |= CollapseOnlyParameters.Contains(bt.BlendParameter);
             var matchedChild = FindSimple1DChild(bt.Children, matchValue, matchType);
             if (matchedChild != null)
             {
@@ -984,6 +1004,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             bool conditional
         )
         {
+            conditional |=
+                CollapseOnlyParameters.Contains(bt.BlendParameter)
+                || CollapseOnlyParameters.Contains(bt.BlendParameterY);
             const float epsilon = 1e-4f;
             foreach (var child in bt.Children)
             {

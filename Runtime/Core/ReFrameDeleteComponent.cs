@@ -741,6 +741,28 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
+        /// <summary>[ReFrameCollapseBlendTree] が付いた削除中の行のパラメーター名 (固定した値の枝に畳むだけで焼かない・消さない)。</summary>
+        public IEnumerable<string> EnumerateCollapseBlendTreeParameterNames()
+        {
+            var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
+
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                if (field.GetCustomAttribute<ReFrameCollapseBlendTreeAttribute>(true) == null)
+                    continue;
+
+                var entry = (ReFrameDeleteEntry)field.GetValue(this);
+                if (!IsDeleting(field, entry, deletingRepresentativeParams))
+                    continue;
+
+                foreach (var attr in field.GetCustomAttributes<ReFrameDeleteAttribute>(true))
+                    if (!string.IsNullOrEmpty(attr.ParameterName))
+                        yield return attr.ParameterName;
+            }
+        }
+
         /// <summary>このコンポーネントが持つ ReFrameDeleteEntry 型フィールドのうち Enabled が true のものについて、[ReFrameDeleteRelatedBlendTree] で宣言された (パラメーターとは無関係な、名前ベースで削除したい) BlendTree の Name を列挙する。</summary>
         public IEnumerable<(string Name, bool Bake)> EnumerateRelatedBlendTreeTargets()
         {

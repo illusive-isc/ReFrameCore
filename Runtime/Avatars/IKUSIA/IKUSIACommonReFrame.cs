@@ -138,6 +138,10 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // パラメーターごと消えて 0 → action → action 0 → Exit が毎フレーム回る。action には
         // VRCAnimatorTemporaryPoseSpace (Enter) が付いているので、視点が毎フレーム入り直して壊れる。
         // Value に関係なく (OnlyWhenValue なしで) レイヤーごと消す。
+        // 0 以外で固定したときの Locomotion の BlendTree (standing / Crouching / Prone / huyuu_) は、選ばれた枝を
+        // そのまま残して畳む。既定の「クリップなら焼いて消す」だと Humanoid クリップは焼けずにステートが空になる
+        // (Crouching / Prone は枝の多くが生のクリップ。standing / huyuu_ は全部サブツリーなので偶然無事だった)。
+        [ReFrameCollapseBlendTree]
         [ReFrameDeleteLayer("Copy_SetVew_standing")]
         [ReFrameDelete("paryi_change_Standing", ReFrameParameterType.Float)]
         [ReFrameLabel("立ちポーズ")]
@@ -151,6 +155,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/crouching", Keep = new[] { "leg fixed" })]
+        [ReFrameCollapseBlendTree]
         [ReFrameDeleteLayer("Copy_SetVew_Crouching")]
         [ReFrameDelete("paryi_change_Crouching", ReFrameParameterType.Float)]
         [ReFrameLabel("しゃがみポーズ")]
@@ -164,6 +169,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/prone", Keep = new[] { "leg fixed" })]
+        [ReFrameCollapseBlendTree]
         [ReFrameDeleteLayer("Copy_SetVew_Prone")]
         [ReFrameDelete("paryi_change_Prone", ReFrameParameterType.Float)]
         [ReFrameLabel("伏せポーズ")]
@@ -177,6 +183,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/floating", Keep = new[] { "leg fixed" })]
+        [ReFrameCollapseBlendTree]
         [ReFrameDeleteLayer("Copy_SetVew_huyuu")]
         [ReFrameDelete("paryi_floating", ReFrameParameterType.Float)]
         [ReFrameLabel("浮遊ポーズ")]

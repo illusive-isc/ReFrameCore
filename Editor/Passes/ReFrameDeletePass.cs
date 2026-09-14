@@ -138,7 +138,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         )
                 );
 
-                ExpandLinkedParameters(context, allDeleteTargets);
+                var linkedByOwner = ExpandLinkedParameters(context, allDeleteTargets);
 
                 ExpandWhenAllGoneParameters(components, allDeleteTargets);
 
@@ -160,13 +160,27 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     Debug.LogWarning(
                         "[ReFrameCore] ReFrameDeletePass: no-bake parameters = " + string.Join(", ", noBakeParams)
                     );
+                // [ReFrameCollapseBlendTree] は行のパラメーターだけでなく Copy 先 (_M 等) にも効かせる。
+                // 実際に BlendTree の軸になっているのはコピー先の方だから。
+                var collapseParams = new HashSet<string>(
+                    components.SelectMany(c => c.EnumerateCollapseBlendTreeParameterNames())
+                );
+                foreach (var owner in collapseParams.ToArray())
+                    if (linkedByOwner.TryGetValue(owner, out var linkedNames))
+                        collapseParams.UnionWith(linkedNames);
+                if (collapseParams.Count > 0)
+                    Debug.LogWarning(
+                        "[ReFrameCore] ReFrameDeletePass: collapse-only parameters = "
+                            + string.Join(", ", collapseParams)
+                    );
                 var targets = allDeleteTargets
                     .Where(t => !t.MenuOnly)
                     .Select(t => new ReFrameAnimatorUtil.ParameterTarget(
                         t.ParameterName,
                         t.Value,
                         cutTransitionParams.Contains(t.ParameterName),
-                        noBakeParams.Contains(t.ParameterName)
+                        noBakeParams.Contains(t.ParameterName),
+                        collapseParams.Contains(t.ParameterName)
                     ))
                     .ToArray();
                 var relatedBlendTreeTargets = components
@@ -972,19 +986,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return false;
         }
 
-        /// <summary>削除対象を「道連れで死ぬパラメーター」まで広げる。</summary>
-        static void ExpandLinkedParameters(
+        /// <summary>削除対象を「道連れで死ぬパラメーター」まで広げる。戻り値は 元のパラメーター → 道連れにした名前 (行の属性をコピー先にも効かせるため)。</summary>
+        static Dictionary<string, List<string>> ExpandLinkedParameters(
             BuildContext context,
             List<(string ParameterName, float Value, bool MenuOnly)> targets
         )
         {
+            var linkedByOwner = new Dictionary<string, List<string>>();
             var descriptor = context.AvatarDescriptor;
             if (descriptor == null)
-                return;
+                return linkedByOwner;
 
             var links = ReFrameParameterLink.Build(descriptor);
             if (links.Count == 0)
-                return;
+                return linkedByOwner;
 
             var known = new HashSet<string>(targets.Select(t => t.ParameterName));
             var added = new List<string>();
@@ -1001,6 +1016,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     var fixedValue = link.UseOwnerValue ? value : link.DefaultValue;
                     targets.Add((link.Name, fixedValue, false));
                     added.Add(link.Name + "=" + fixedValue + " (" + link.Reason + " of " + parameter + ")");
+                    if (!linkedByOwner.TryGetValue(parameter, out var names))
+                        linkedByOwner[parameter] = names = new List<string>();
+                    names.Add(link.Name);
                 }
             }
 
@@ -1009,6 +1027,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     "[ReFrameCore] ReFrameDeletePass: linked parameters = "
                         + string.Join(", ", added)
                 );
+            return linkedByOwner;
         }
 
         /// <summary>「関連が全部消えたときにだけ死ぬ」パラメーターを片付ける (ReFrameDeleteWhenAllGoneAttribute)。</summary>
