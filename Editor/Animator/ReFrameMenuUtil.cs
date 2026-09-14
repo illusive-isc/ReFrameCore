@@ -167,10 +167,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 collapsed += CollapseSingleSubMenuChains(control.subMenu, visited, protect);
 
                 // 中身がサブメニュー 1 個だけなら、その中身へ直接向ける (何段でも)。
+                // A → B → A のように循環しているメニューで回り続けないよう、辿った先を覚えておく。
+                var walked = new HashSet<VRCExpressionsMenu>();
                 while (true)
                 {
                     var inner = control.subMenu;
-                    if (inner == null || (protect != null && protect.Contains(inner)))
+                    if (inner == null || (protect != null && protect.Contains(inner)) || !walked.Add(inner))
                         break;
                     var items = inner.controls.Where(c => c != null).ToList();
                     if (items.Count != 1)

@@ -1661,7 +1661,13 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var baseMenu = ReFrameMenuUtil.ReplaceMenuWithClone(context, menuCloneCache);
             if (baseMenu != null)
             {
+                // 空サブメニューの掃除で守るのは「menuToAppend が空でない Installer の設置先」だけ
+                // (中身が入る当てのある空サブメニューを消さないため)。
                 var protectedClones = new HashSet<VRCExpressionsMenu>();
+                // 連鎖畳みで守るのは Installer の設置先<b>全部</b>。Menu Item (子オブジェクト方式、
+                // menuToAppend == null) の Installer は後段の MA が設置先へ項目を入れるので、いま
+                // 「サブメニュー 1 個だけ」に見えても包みを飛ばしてはいけない。
+                var installTargets = new HashSet<VRCExpressionsMenu>();
                 foreach (var installer in installers)
                 {
                     if (!menuCloneCache.TryGetValue(installer.installTargetMenu, out var cloned))
@@ -1672,6 +1678,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         EditorUtility.SetDirty(installer);
                     }
 
+                    installTargets.Add(cloned);
                     if (targetHasContent.TryGetValue(cloned, out var hasContent) && hasContent)
                         protectedClones.Add(cloned);
                 }
@@ -1681,7 +1688,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 // 繰り上げは、消える項目が抜けて空サブメニューも掃除された後で行う (残った中身だけを上げる)。
                 menuRemoved += ApplyMenuFlattens(baseMenu, components);
                 // 削除の結果「サブメニュー 1 個だけ」になって階層が深いだけのものは、宣言なしで畳む。
-                var collapsedChains = ReFrameMenuUtil.CollapseSingleSubMenuChains(baseMenu, protectedClones);
+                var collapsedChains = ReFrameMenuUtil.CollapseSingleSubMenuChains(baseMenu, installTargets);
                 if (collapsedChains > 0)
                     Debug.LogWarning(
                         $"[ReFrameCore] ReFrameDeletePass: サブメニュー 1 個だけの階層を {collapsedChains} 段畳みました。"
