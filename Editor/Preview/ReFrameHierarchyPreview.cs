@@ -314,8 +314,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 result
             );
 
+            // プロキシに書くのは「アバターに反映」の付いていない行だけ (シーンのメッシュへ直接書く行は
+            // 実メッシュの値がそのまま描かれるべきで、プロキシに重ねて書くと食い違いの元になる)。
+            // 値は Observe で見張る: 直接列挙すると行のスライダーを動かしてもプレビューが再計算されない。
+            var blendShapeTargets = new List<(string Path, string ShapeName, float Weight)>();
+            foreach (var component in components)
+                blendShapeTargets.AddRange(
+                    context.Observe(
+                        component,
+                        c => c.EnumerateBlendShapeTargets(excludeApplyToAvatar: true).ToList(),
+                        (a, b) => a.SequenceEqual(b)
+                    )
+                );
             ReFrameBakedVisibilityResolver.ResolveFixedBlendShapes(
-                components.SelectMany(c => c.EnumerateBlendShapeTargets()),
+                blendShapeTargets,
                 descriptor.transform,
                 result
             );

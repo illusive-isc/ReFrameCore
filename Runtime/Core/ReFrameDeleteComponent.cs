@@ -935,9 +935,11 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
-        /// <summary>[ReFrameApplyToAvatar] が付いた [ReFrameBlendShape] の行の固定先。</summary>
+        /// <summary>[ReFrameApplyToAvatar] が付いた [ReFrameBlendShape] の行の固定先。行が Enabled か、道連れで削除中のもの (ビルド時の EnumerateBlendShapeTargets と同じ判定)。</summary>
         public IEnumerable<(string Path, string ShapeName, float Weight)> EnumerateAvatarChangeBlendShapes()
         {
+            var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
+
             foreach (var field in GetType().GetFields(FieldFlags))
             {
                 if (field.FieldType != typeof(ReFrameDeleteEntry))
@@ -945,7 +947,7 @@ namespace jp.illusive_isc.ReFrame.Core
                 if (field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) == null)
                     continue;
                 var entry = (ReFrameDeleteEntry)field.GetValue(this);
-                if (!entry.Enabled)
+                if (!IsDeleting(field, entry, deletingRepresentativeParams))
                     continue;
                 foreach (var attr in field.GetCustomAttributes<ReFrameBlendShapeAttribute>(true))
                 {
@@ -1001,14 +1003,18 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
-        /// <summary>[ReFrameBlendShape] で固定する BlendShape。行が Enabled か、[ReFrameBundleMember] の代表の道連れで削除中のもの。</summary>
-        public IEnumerable<(string Path, string ShapeName, float Weight)> EnumerateBlendShapeTargets()
+        /// <summary>[ReFrameBlendShape] で固定する BlendShape。行が Enabled か、[ReFrameBundleMember] の代表の道連れで削除中のもの。
+        /// excludeApplyToAvatar = true なら [ReFrameApplyToAvatar] の行 (シーンのメッシュへ直接書く行) を除く: プレビューは
+        /// 実メッシュをそのまま描けばよく、プロキシに重ねて書くと実メッシュと食い違う元になる。</summary>
+        public IEnumerable<(string Path, string ShapeName, float Weight)> EnumerateBlendShapeTargets(bool excludeApplyToAvatar = false)
         {
             var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
 
             foreach (var field in GetType().GetFields(FieldFlags))
             {
                 if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                if (excludeApplyToAvatar && field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) != null)
                     continue;
                 var entry = (ReFrameDeleteEntry)field.GetValue(this);
                 if (!IsDeleting(field, entry, deletingRepresentativeParams))
