@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using nadena.dev.ndmf;
 using UnityEngine;
 using VRC.SDK3.Avatars.ScriptableObjects;
@@ -127,6 +128,63 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// 「サブメニュー 1 個しか入っていないサブメニュー」の連鎖を畳む。削除で中身が減った結果
+        /// A → B → (中身) のように B が A の唯一の項目になった場合、A のコントロールを直接 B の中身へ
+        /// 向け直して階層を 1 段減らす (名前とアイコンは A のまま。A にアイコンが無ければ B のを使う)。
+        /// 一番奥から調べるので、何段の連鎖でもまとめて畳まれる。ルートメニュー自体は畳まない。
+        /// protect に含まれる SubMenu アセット (MenuInstaller の差し込み先など、後から中身が増えるもの)
+        /// は「1 個しか無い」と判定しない。戻り値は畳んだ段数。
+        /// </summary>
+        public static int CollapseSingleSubMenuChains(VRCExpressionsMenu menu, ISet<VRCExpressionsMenu> protect = null)
+        {
+            if (menu == null)
+                return 0;
+            return CollapseSingleSubMenuChains(menu, new HashSet<VRCExpressionsMenu>(), protect);
+        }
+
+        static int CollapseSingleSubMenuChains(
+            VRCExpressionsMenu menu,
+            HashSet<VRCExpressionsMenu> visited,
+            ISet<VRCExpressionsMenu> protect
+        )
+        {
+            if (menu == null || !visited.Add(menu))
+                return 0;
+
+            var collapsed = 0;
+            foreach (var control in menu.controls)
+            {
+                if (
+                    control == null
+                    || control.type != VRCExpressionsMenu.Control.ControlType.SubMenu
+                    || control.subMenu == null
+                )
+                    continue;
+
+                collapsed += CollapseSingleSubMenuChains(control.subMenu, visited, protect);
+
+                // 中身がサブメニュー 1 個だけなら、その中身へ直接向ける (何段でも)。
+                while (true)
+                {
+                    var inner = control.subMenu;
+                    if (inner == null || (protect != null && protect.Contains(inner)))
+                        break;
+                    var items = inner.controls.Where(c => c != null).ToList();
+                    if (items.Count != 1)
+                        break;
+                    var only = items[0];
+                    if (only.type != VRCExpressionsMenu.Control.ControlType.SubMenu || only.subMenu == null)
+                        break;
+                    if (control.icon == null)
+                        control.icon = only.icon;
+                    control.subMenu = only.subMenu;
+                    collapsed++;
+                }
+            }
+            return collapsed;
         }
 
         /// <summary>メニューツリーを一番奥の階層から調べ、コントロールが 0 件になったサブメニューへの SubMenu コントロールを削除する。</summary>

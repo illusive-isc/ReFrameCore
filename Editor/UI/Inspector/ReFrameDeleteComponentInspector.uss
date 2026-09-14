@@ -625,6 +625,32 @@
     -unity-text-align: middle-center;
 }
 
+/* 行のタイトル横に拡張が足す小さなボタン (ReFrameAdd の「姿勢」など) */
+.reframe-inspector-root .reframe-entry__decorator {
+    margin-left: var(--reframe-spacing-sm);
+    height: 18px;
+    min-width: 36px;
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: var(--reframe-spacing-sm);
+    padding-right: var(--reframe-spacing-sm);
+    font-size: var(--reframe-font-size-sm);
+    flex-shrink: 0;
+    background-color: var(--reframe-color-toggle-off-bg);
+    color: var(--reframe-color-toggle-off-text);
+}
+
+.reframe-inspector-root .reframe-category-header__decorator {
+    margin-left: auto;
+    margin-right: var(--reframe-spacing-sm);
+    height: 16px;
+}
+
+.reframe-inspector-root .reframe-entry__decorator.reframe-entry__decorator--on {
+    background-color: var(--reframe-color-toggle-checked);
+    color: var(--reframe-color-toggle-on-text);
+}
+
 .reframe-inspector-root .reframe-toggle-button.reframe-toggle-button--on {
     background-color: var(--reframe-color-toggle-checked);
     color: var(--reframe-color-toggle-on-text);

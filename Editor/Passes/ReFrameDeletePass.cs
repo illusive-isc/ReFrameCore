@@ -1661,6 +1661,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 pruned += ReFrameMenuUtil.PruneEmptySubMenus(baseMenu, protectedClones);
                 // 繰り上げは、消える項目が抜けて空サブメニューも掃除された後で行う (残った中身だけを上げる)。
                 menuRemoved += ApplyMenuFlattens(baseMenu, components);
+                // 削除の結果「サブメニュー 1 個だけ」になって階層が深いだけのものは、宣言なしで畳む。
+                var collapsedChains = ReFrameMenuUtil.CollapseSingleSubMenuChains(baseMenu, protectedClones);
+                if (collapsedChains > 0)
+                    Debug.LogWarning(
+                        $"[ReFrameCore] ReFrameDeletePass: サブメニュー 1 個だけの階層を {collapsedChains} 段畳みました。"
+                    );
             }
 
             Debug.LogWarning(

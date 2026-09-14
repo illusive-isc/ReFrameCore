@@ -2432,7 +2432,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             header.Add(label);
 
             foreach (var entry in node.Entries)
-                content.Add(BuildEntryElement(entry));
+                content.Add(BuildEntryElement(entry, header));
             foreach (var child in node.Children)
                 content.Add(BuildGroupElement(child, depth + 1));
 
@@ -2545,7 +2545,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
         }
 
-        VisualElement BuildEntryElement(EntryInfo entry)
+        VisualElement BuildEntryElement(EntryInfo entry, VisualElement groupHeader = null)
         {
             var container = new VisualElement();
             container.AddToClassList("reframe-entry");
@@ -2581,6 +2581,30 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 ShowCopyMenu(entry);
             });
             left.Add(label);
+
+            // 拡張 (ReFrameAdd 等) がタイトル横、または行の見出しの右端に足す要素。
+            foreach (var (extra, placement) in ReFrameRowDecorators.Build(new ReFrameRowContext
+            {
+                Component = (ReFrameDeleteComponent)target,
+                Field = entry.Field,
+                SerializedObject = serializedObject,
+                EnabledProperty = enabledProp,
+                ValueProperty = valueProp,
+                ParameterNames = entry.ParameterNames,
+                Label = entry.Label,
+            }))
+            {
+                extra.AddToClassList("reframe-entry__decorator");
+                if (placement == ReFrameRowDecoratorPlacement.GroupHeader && groupHeader != null)
+                {
+                    // 見出しはクリックで畳めるので、ボタンのクリックは見出しへ流さない。
+                    extra.AddToClassList("reframe-category-header__decorator");
+                    extra.RegisterCallback<ClickEvent>(e => e.StopPropagation());
+                    groupHeader.Add(extra);
+                }
+                else
+                    left.Add(extra);
+            }
 
             var parameters = new Label();
             parameters.AddToClassList("reframe-entry__params");
