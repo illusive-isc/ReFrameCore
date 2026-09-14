@@ -92,6 +92,17 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         [ReFrameDeleteLayer("pose", 0f)]
         [ReFrameDeleteLayer("takasa", 0f)]
         [ReFrameDeleteLayer("takasalimit", 0f)]
+        // ロコモーションを消すと入口の遷移が全部切れて default に座ったままになるギミック専用レイヤー。
+        // pose_reset → Copy_SetVew_Loco_Reset の組はロード直後に PoseSpace へ 2 回余計に入るだけで実害は無いが、
+        // pose / takasa / takasalimit と同じ系統なので一緒に消す。Action_Mode_Reset_M / takasaiji は
+        // これらの外に読み手が居ない (takasaiji はそもそも Set されるだけ)。
+        [ReFrameDeleteLayer("Copy_SetVew_Loco", 0f)]
+        [ReFrameDeleteLayer("Copy_SetVew_Loco_Reset", 0f)]
+        [ReFrameDeleteLayer("motioncontrl", 0f)]
+        [ReFrameDeleteLayer("posespace", 0f)]
+        [ReFrameDeleteLayer("pose_reset", 0f)]
+        [ReFrameDeleteLayer("defo", 0f)]
+        [ReFrameDeleteLayer("Action_Mode_off", 0f)]
         [ReFrameDelete("paryi_chang_Loco", ReFrameParameterType.Float)]
         [ReFrameDelete("Mirror", ReFrameParameterType.Bool)]
         [ReFrameDelete("takasa_Toggle", ReFrameParameterType.Bool)]
@@ -122,6 +133,12 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/standing", Keep = new[] { "leg fixed" })]
+        // 無印 → _M のコピーはビルド時に固定値へ畳まれるので、この行が有効なら Copy_SetVew_* に仕事は無い。
+        // 残すと「0 以外で固定」したとき条件 (> 0) が常に真になり、止め役だった Set (無印 = 0) も
+        // パラメーターごと消えて 0 → action → action 0 → Exit が毎フレーム回る。action には
+        // VRCAnimatorTemporaryPoseSpace (Enter) が付いているので、視点が毎フレーム入り直して壊れる。
+        // Value に関係なく (OnlyWhenValue なしで) レイヤーごと消す。
+        [ReFrameDeleteLayer("Copy_SetVew_standing")]
         [ReFrameDelete("paryi_change_Standing", ReFrameParameterType.Float)]
         [ReFrameLabel("立ちポーズ")]
         public ReFrameDeleteEntry standingPoses = new() { Enabled = false, Value = 0f };
@@ -134,6 +151,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/crouching", Keep = new[] { "leg fixed" })]
+        [ReFrameDeleteLayer("Copy_SetVew_Crouching")]
         [ReFrameDelete("paryi_change_Crouching", ReFrameParameterType.Float)]
         [ReFrameLabel("しゃがみポーズ")]
         public ReFrameDeleteEntry crouchingPoses = new() { Enabled = false, Value = 0f };
@@ -146,6 +164,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/prone", Keep = new[] { "leg fixed" })]
+        [ReFrameDeleteLayer("Copy_SetVew_Prone")]
         [ReFrameDelete("paryi_change_Prone", ReFrameParameterType.Float)]
         [ReFrameLabel("伏せポーズ")]
         public ReFrameDeleteEntry pronePoses = new() { Enabled = false, Value = 0f };
@@ -158,6 +177,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // ポーズを消すとサブメニューには "leg fixed" だけが残るので、サブメニューごと外して
         // "leg fixed" だけ親 (姿勢変更) へ移す (同名の項目が既にあれば重ねない)。
         [ReFrameMenuRemove("IKUSIA_emote/姿勢変更/floating", Keep = new[] { "leg fixed" })]
+        [ReFrameDeleteLayer("Copy_SetVew_huyuu")]
         [ReFrameDelete("paryi_floating", ReFrameParameterType.Float)]
         [ReFrameLabel("浮遊ポーズ")]
         public ReFrameDeleteEntry floatingPoses = new() { Enabled = false, Value = 0f };
