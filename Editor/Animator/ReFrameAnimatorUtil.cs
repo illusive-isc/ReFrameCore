@@ -1527,6 +1527,101 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return removed;
         }
 
+        /// <summary>
+        /// [ReFrameRedirectState]: レイヤー内で FromState を行き先にしている遷移 (各ステートの Transitions・
+        /// AnyState・Entry) と既定ステートを ToState へ付け替える。FromState 自身から出る遷移には触らない
+        /// (誰も入らなくなれば PruneUnreachableStates が落とす)。戻り値は付け替えた参照の本数。
+        /// </summary>
+        public static int RedirectNamedStates(
+            VirtualAnimatorController controller,
+            IEnumerable<(string LayerName, string FromState, string ToState)> targets
+        )
+        {
+            if (controller == null || targets == null)
+                return 0;
+
+            var redirected = 0;
+            foreach (var (layerName, fromName, toName) in targets)
+            {
+                if (string.IsNullOrEmpty(layerName) || string.IsNullOrEmpty(fromName) || string.IsNullOrEmpty(toName))
+                    continue;
+                foreach (var layer in controller.Layers)
+                {
+                    if (layer?.StateMachine == null || layer.Name != layerName)
+                        continue;
+                    var from = FindStateByName(layer.StateMachine, fromName);
+                    var to = FindStateByName(layer.StateMachine, toName);
+                    if (from == null || to == null || ReferenceEquals(from, to))
+                    {
+                        Debug.LogWarning(
+                            $"[ReFrameCore] RedirectNamedStates: '{layerName}' に '{fromName}' → '{toName}' の組が見つからないため繋ぎ変えを飛ばします (from={(from != null)}, to={(to != null)})。"
+                        );
+                        continue;
+                    }
+                    redirected += RedirectStateInStateMachine(layer.StateMachine, from, to);
+                }
+            }
+            return redirected;
+        }
+
+        static VirtualState FindStateByName(VirtualStateMachine sm, string name)
+        {
+            foreach (var child in sm.States)
+                if (child.State != null && child.State.Name == name)
+                    return child.State;
+            foreach (var child in sm.StateMachines)
+            {
+                var found = child.StateMachine != null ? FindStateByName(child.StateMachine, name) : null;
+                if (found != null)
+                    return found;
+            }
+            return null;
+        }
+
+        static int RedirectStateInStateMachine(VirtualStateMachine sm, VirtualState from, VirtualState to)
+        {
+            var redirected = 0;
+
+            foreach (var childState in sm.States)
+            {
+                var state = childState.State;
+                if (state == null)
+                    continue;
+                foreach (var t in state.Transitions)
+                    if (t != null && ReferenceEquals(t.DestinationState, from))
+                    {
+                        t.SetDestination(to);
+                        redirected++;
+                    }
+            }
+
+            foreach (var t in sm.AnyStateTransitions)
+                if (t != null && ReferenceEquals(t.DestinationState, from))
+                {
+                    t.SetDestination(to);
+                    redirected++;
+                }
+
+            foreach (var t in sm.EntryTransitions)
+                if (t != null && ReferenceEquals(t.DestinationState, from))
+                {
+                    t.SetDestination(to);
+                    redirected++;
+                }
+
+            if (ReferenceEquals(sm.DefaultState, from))
+            {
+                sm.DefaultState = to;
+                redirected++;
+            }
+
+            foreach (var child in sm.StateMachines)
+                if (child.StateMachine != null)
+                    redirected += RedirectStateInStateMachine(child.StateMachine, from, to);
+
+            return redirected;
+        }
+
         static int RemoveNamedStatesInStateMachine(
             VirtualStateMachine sm,
             HashSet<string> names,

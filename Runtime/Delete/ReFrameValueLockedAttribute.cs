@@ -9,6 +9,9 @@ namespace jp.illusive_isc.ReFrame.Core
         /// <summary>ビルド時にこのフィールドが削除する全パラメーターへ固定する値。</summary>
         public float FixedValue { get; }
 
+        /// <summary>Inspector の Value 欄に "<値> 固定" の代わりに出す文言 (例: "下のシェイプで指定")。空なら既定の表示。</summary>
+        public string Label { get; set; }
+
         public ReFrameValueLockedAttribute(float fixedValue = 0f)
         {
             FixedValue = fixedValue;

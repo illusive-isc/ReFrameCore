@@ -592,3 +592,40 @@
     padding-left: var(--reframe-spacing-md);
     padding-right: var(--reframe-spacing-md);
 }
+
+/* ラベル + ON/OFF ボタンの 1 行トグル (チェックボックスの代わり。ラベルが切れないよう伸縮側をラベルにする) */
+.reframe-toggle-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: var(--reframe-spacing-sm);
+    margin-left: 3px;
+    margin-right: 3px;
+}
+
+.reframe-toggle-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--reframe-font-size-md);
+}
+
+.reframe-inspector-root .reframe-toggle-button {
+    width: 56px;
+    min-width: 56px;
+    flex-shrink: 0;
+    height: 20px;
+    margin-left: var(--reframe-spacing-sm);
+    padding-top: 0;
+    padding-bottom: 0;
+    background-color: var(--reframe-color-toggle-off-bg);
+    color: var(--reframe-color-toggle-off-text);
+    -unity-text-align: middle-center;
+}
+
+.reframe-inspector-root .reframe-toggle-button.reframe-toggle-button--on {
+    background-color: var(--reframe-color-toggle-checked);
+    color: var(--reframe-color-toggle-on-text);
+}

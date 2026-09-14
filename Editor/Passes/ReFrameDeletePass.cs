@@ -193,6 +193,16 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             + string.Join(", ", stateNames.Select(s => s.LayerName + "/" + s.StateName))
                     );
 
+                var redirectTargets = components
+                    .SelectMany(c => c.EnumerateRedirectStateTargets())
+                    .Distinct()
+                    .ToArray();
+                if (redirectTargets.Length > 0)
+                    Debug.LogWarning(
+                        "[ReFrameCore] ReFrameDeletePass: redirect targets = "
+                            + string.Join(", ", redirectTargets.Select(s => s.LayerName + "/" + s.FromState + " -> " + s.ToState))
+                    );
+
                 var treeOverrides = ReFrameAnimatorUtil.BuildTreeOverrides(
                     components.SelectMany(c => c.EnumerateBlendTreeOverrides()),
                     targets.Select(t => t.Name)
@@ -203,6 +213,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     || relatedBlendTreeTargets.Length > 0
                     || layerNames.Length > 0
                     || stateNames.Length > 0
+                    || redirectTargets.Length > 0
                     || treeOverrides.Count > 0
                 )
                 {
@@ -212,6 +223,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         relatedBlendTreeTargets,
                         layerNames,
                         stateNames,
+                        redirectTargets,
                         treeOverrides
                     );
                 }
@@ -1275,6 +1287,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             ReFrameAnimatorUtil.RelatedBlendTreeTarget[] relatedBlendTreeTargets,
             string[] layerNames,
             (string LayerName, string StateName)[] stateNames,
+            (string LayerName, string FromState, string ToState)[] redirectTargets,
             Dictionary<string, float> treeOverrides
         )
         {
@@ -1348,6 +1361,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 $"[ReFrameCore] ReFrameDeletePass: single-child BlendTree collapse -> changed={collapsedChanged}"
             );
 
+            // 繋ぎ変えは値の固定 (RemoveParameters) の後・到達不能ステートの掃除の前。固定で消えた
+            // 「条件が全部成立する遷移」の代わりに、ハブへの入口ごと枝の先頭へ向ける。
+            if (redirectTargets.Length > 0)
+            {
+                var redirected = 0;
+                foreach (var (controller, _) in distinctControllers)
+                    redirected += ReFrameAnimatorUtil.RedirectNamedStates(controller, redirectTargets);
+                Debug.LogWarning(
+                    "[ReFrameCore] ReFrameDeletePass: state redirect ("
+                        + string.Join(", ", redirectTargets.Select(s => s.LayerName + "/" + s.FromState + " -> " + s.ToState))
+                        + $") -> redirected {redirected} reference(s)"
+                );
+            }
+
             if (stateNames.Length > 0)
             {
                 var removedStates = 0;
@@ -1418,6 +1445,19 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             );
                             continue;
                         }
+                        // 同じ項目 (名前・種類・パラメーター) が移し先に既にあれば重ねない。姿勢変更の
+                        // standing / crouching / prone がそれぞれ "leg fixed" を持つように、複数のサブメニューから
+                        // 同じ項目を Keep で親へ移すと同じトグルが並ぶため。
+                        var keepParam = keep.parameter != null ? keep.parameter.name : null;
+                        if (
+                            parent.controls.Any(c =>
+                                c != null
+                                && c.name == keep.name
+                                && c.type == keep.type
+                                && (c.parameter != null ? c.parameter.name : null) == keepParam
+                            )
+                        )
+                            continue;
                         if (parent.controls.Count >= VRCExpressionsMenu.MAX_CONTROLS)
                         {
                             Debug.LogWarning(

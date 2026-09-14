@@ -49,6 +49,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>削除すると浮く VRChat の同期パラメーターのビット数 (全パラメーターの合算)。</summary>
             public int BitCost;
 
+            /// <summary>BitCost のうち、[ReFrameParameterLink] のリンク先 (直接宣言されていない名前) の分。</summary>
+            public int LinkBits;
+
             /// <summary>[ReFrameBlendShape] だけの行。</summary>
             public bool BlendShapeRow;
 
@@ -57,6 +60,23 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             /// <summary>[ReFrameZeroChoice]: 0 を「ギミック OFF」ではなく正規の選択肢として扱う (そのときの表示名)。無ければ null。</summary>
             public string ZeroChoiceLabel;
+
+            /// <summary>[ReFrameValueLabels]: ON/OFF タイルの表示名 (生の値 0 / 1 の順)。無ければ null。</summary>
+            public string[] ValueLabels;
+
+            /// <summary>[ReFrameValueChoices]: スライダーの代わりに出す候補 (値, 表示名)。無ければ null。</summary>
+            public ReFrameMenuGrouping.ParameterUsage ValueChoices;
+
+            /// <summary>[ReFrameValueLocked(Label = ...)]: 固定値タイルの文言。無ければ null。</summary>
+            public string LockedLabel;
+
+            /// <summary>生の値に対応する ON/OFF タイルの表示名。</summary>
+            public string OnOffText(bool raw)
+            {
+                if (ValueLabels != null)
+                    return raw ? ValueLabels[1] : ValueLabels[0];
+                return (Reversed ? !raw : raw) ? "ON" : "OFF";
+            }
 
             /// <summary>[ReFrameApplyToAvatar]: アバター自体の変更 (体型)。</summary>
             public bool ApplyToAvatar;
@@ -162,6 +182,16 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         /// <summary>各行が「いま削除される (Enabled / 道連れ / Quest 強制) なら、そのパラメーター名」を返す 評価器。</summary>
         readonly List<System.Func<IEnumerable<string>>> _deletingProbes = new();
 
+        /// <summary>_deletingProbes と同じだが [ReFrameMenuOnly] の行も含む、ビット集計用。同じパラメーターを
+        /// 複数の行が宣言していても (例: 全削除の行と、その一部だけを固定する行) 集計は名前で一意にする。</summary>
+        readonly List<System.Func<IEnumerable<string>>> _freeingProbes = new();
+
+        /// <summary>_deletableTotal に既に数えたパラメーター名 (行をまたいで一意にするため)。</summary>
+        readonly HashSet<string> _deletableCounted = new();
+
+        /// <summary>パラメーター名 → 同期ビット数 (BuildBitUsage の結果、行の集計にも使う)。</summary>
+        Dictionary<string, int> _bitUsage = new();
+
         /// <summary>この ReFrame のどれかの行が [ReFrameDelete] で直接宣言しているパラメーター名。</summary>
         HashSet<string> _declaredParameterNames = new();
 
@@ -253,7 +283,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
                 box.Add(
                     new HelpBox(
-                        "いまは設定を変えるたびにその場で焼いています (アバター全体で 1.7 秒)。"
+                        "いまは設定を変えるたびにその場で焼いています (アバター全体で数秒〜)。"
                             + "ボタンを押して焼いておくと、プレビューもビルドも読むだけになります。",
                         HelpBoxMessageType.Info
                     )
@@ -428,6 +458,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             _representativeProbes.Clear();
             _bitProbes.Clear();
             _deletingProbes.Clear();
+            _freeingProbes.Clear();
+            _deletableCounted.Clear();
             _deletableTotal = 0;
             _refreshSummary = null;
             _requestQuestAuditRefresh = null;
@@ -463,13 +495,38 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             );
             if (previewProp != null)
             {
-
-                var previewField = new PropertyField(previewProp, "プレビューに反映 (消える物を Scene で隠す)");
-                previewField.tooltip =
+                // チェックボックスだと右端の固定幅にラベルが押し出されて途中で切れるので、
+                // 「ラベル (伸縮) + ON/OFF ボタン (固定幅)」の 1 行にする。
+                var previewRow = new VisualElement();
+                previewRow.AddToClassList("reframe-toggle-row");
+                previewRow.tooltip =
                     "ON の間、削除に指定した項目で消えるオブジェクトを Hierarchy と Scene ビューでも非表示にする。"
                     + "見た目確認用でビルドには影響しない。";
-                previewField.style.marginBottom = 4;
-                root.Add(previewField);
+
+                var previewLabel = new Label("プレビューに反映 (消える物を Scene で隠す)");
+                previewLabel.AddToClassList("reframe-toggle-row__label");
+                previewRow.Add(previewLabel);
+
+                var previewButton = new Button();
+                previewButton.AddToClassList("reframe-toggle-button");
+                void RefreshPreviewButton()
+                {
+                    var on = previewProp.boolValue;
+                    previewButton.text = on ? "ON" : "OFF";
+                    previewButton.EnableInClassList("reframe-toggle-button--on", on);
+                }
+                previewButton.clicked += () =>
+                {
+                    serializedObject.Update();
+                    previewProp.boolValue = !previewProp.boolValue;
+                    serializedObject.ApplyModifiedProperties();
+                    RefreshPreviewButton();
+                };
+                previewButton.TrackPropertyValue(previewProp, _ => RefreshPreviewButton());
+                RefreshPreviewButton();
+                previewRow.Add(previewButton);
+
+                root.Add(previewRow);
             }
 
             root.Add(BuildVariantBanner(component));
@@ -508,15 +565,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     {
                         sweepHelp.messageType = HelpBoxMessageType.None;
                         sweepHelp.text =
-                            "削除対象に合わせて、AAO などの最適化ツールより前に ReFrame があらかじめ削除します。\n"
+                            "削除した項目の実体 (オブジェクトとボーン) を、AAO などの最適化ツールより先に ReFrame が掃除しておきます。\n"
                             + "他のツールを入れていなくても、アバターの容量とパフォーマンスランクが減ります。\n"
                             + "よく分からない場合はこのままで大丈夫です。\n\n"
-                            + "ただし AAO とは違うロジックで、より攻めた削除をします。"
-                            + "削除した項目で二度と有効にならないと判定したオブジェクトとボーンは、"
-                            + "AAO が残すものでも消します。\n"
-                            + "消すのはあくまで、ビルド後の既定の状態で非表示のまま二度と有効にならない物と、"
-                            + "その巻き添えで誰も使わなくなったボーンだけです。"
-                            + "表示されている物や、メニューやアニメーションで切り替わる物には触りません。"
+                            + "掃除するのは、削除によって二度と使われなくなった物と、その巻き添えで誰も使わなくなったボーンだけです。"
+                            + "削除していない物には触りません。\n"
                             + "消えて困るものがあれば「AAO にお任せする」に切り替えてください。\n\n"
                             + (
                                 canDelegateToAao
@@ -550,9 +603,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
                     sweepHelp.messageType = HelpBoxMessageType.None;
                     sweepHelp.text =
-                        "削除対象に合わせて、AAO (Avatar Optimizer) が削除できるように設定します。\n"
-                        + "実際の削除は AAO が行います。\n"
-                        + "AAO のほうが細かく削れるので、AAO を使っている場合はこちらが有利です。";
+                        "ReFrame は削除した項目の実体 (オブジェクトとボーン) には触らず、"
+                        + "AAO (Avatar Optimizer) が削除できるように設定だけ整えます。\n"
+                        + "実際の削除は AAO の「Trace And Optimize」が行います。\n"
+                        + "「あらかじめ削除する」で消えて困るものがあったときの逃げ道です。";
                 }
                 RefreshSweepHelp();
                 sweepField.RegisterValueChangedCallback(evt =>
@@ -746,8 +800,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     questAudit.Add(
                         new HelpBox(
                             "以下は削除を通す前のシーンをそのまま数えた目安です。"
-                                + "実際のビルドではこれよりかなり小さくなります"
-                                + "。"
+                                + "実際のビルドでは削除した分だけ小さくなります。"
                                 + "アップロードできるかどうかは VRChat SDK のビルド画面で確認してください。",
                             HelpBoxMessageType.Info
                         )
@@ -795,9 +848,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     {
                         aaoNotice.Add(
                             new HelpBox(
-                                "AvatarOptimizer が入っていません。Quest 化ではポリゴン・マテリアル・ボーンの削減が"
-                                    + "要るので、VCC から導入してください (ReFrame では手が届かない範囲です)。",
-                                HelpBoxMessageType.Error
+                                "AvatarOptimizer が入っていません。ポリゴン・マテリアル・ボーンの削減は ReFrame では行わないので、"
+                                    + "Quest の上限に収めるなら VCC から導入するのをおすすめします。",
+                                HelpBoxMessageType.Warning
                             )
                         );
                         return;
@@ -808,9 +861,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     aaoNotice.Add(
                         new HelpBox(
                             "AvatarOptimizer の Trace and Optimize がアバターに付いていません。"
-                                + "Quest 化では必須です — 付けるだけでメッシュ・マテリアル・ボーンが自動で減ります"
-                                + "。",
-                            HelpBoxMessageType.Error
+                                + "付けるとメッシュ・マテリアル・ボーンが自動で減るので、Quest の上限に収めるのに有効です。",
+                            HelpBoxMessageType.Warning
                         )
                     );
                     var add = new Button(() =>
@@ -919,7 +971,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     textureSizeBox.Add(
                         new HelpBox(
                             "Quest のアバターは圧縮後 10MB / 非圧縮 40MB まで (PC は 200MB / 500MB)。"
-                                + "ポリゴンを削るよりテクスチャを縮める方が効きます。",
+                                + "容量にはテクスチャが一番効きます。",
                             HelpBoxMessageType.None
                         )
                     );
@@ -1298,6 +1350,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             var usages = ReFrameMenuGrouping.BuildParameterUsages(descriptor);
             var bitUsage = BuildBitUsage(descriptor);
+            _bitUsage = bitUsage;
 
             _parameterLinks = ReFrameParameterLink.Build(descriptor);
             _parameterBits = ReFrameParameterLink.CollectBits(descriptor);
@@ -1311,6 +1364,36 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             root.Add(BuildDetailModeToggle());
             root.Add(BuildSummary(descriptor));
+
+            // 空くビット数は行ごとの BitCost の合計ではなく、いま削除中の全行が宣言するパラメーター名を
+            // 集めて一意にしてから数える。同じパラメーターを複数の行が持つ場合 (全削除の行と、その一部だけを
+            // 固定する行) に二重に数えないため。リンク先 ([ReFrameParameterLink]) は各行の BitCost と同じ規則で、
+            // 直接宣言されていない名前だけを一度ずつ数える。
+            _bitProbes.Add(() =>
+            {
+                var names = new HashSet<string>();
+                foreach (var probe in _freeingProbes)
+                foreach (var name in probe())
+                    names.Add(name);
+
+                var freed = 0;
+                var countedLinkNames = new HashSet<string>();
+                foreach (var name in names)
+                {
+                    if (_bitUsage.TryGetValue(name, out var bits))
+                        freed += bits;
+                    if (!_parameterLinks.TryGetValue(name, out var links))
+                        continue;
+                    foreach (var link in links)
+                        if (
+                            !_declaredParameterNames.Contains(link.Name)
+                            && countedLinkNames.Add(link.Name)
+                        )
+                            freed += link.Bits;
+                }
+                return freed;
+            });
+
             var tree = BuildTree(component, usages, bitUsage, out var outsideMenu);
 
             CollapseThinGroups(tree);
@@ -1319,6 +1402,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 System.Attribute.GetCustomAttribute(component.GetType(), typeof(ReFrameGroupOrderAttribute), true);
             if (order != null)
                 SortGroups(tree, order);
+            OrderBundleMembers(tree);
+            OrderBundleMembers(outsideMenu);
 
             foreach (var entry in tree.Entries)
                 root.Add(BuildEntryElement(entry));
@@ -2081,6 +2166,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     Label = ObjectNames.NicifyVariableName(field.Name),
                     Reversed = field.GetCustomAttribute<ReFrameReverseAttribute>(true) != null,
                     ZeroChoiceLabel = field.GetCustomAttribute<ReFrameZeroChoiceAttribute>(true)?.Label,
+                    ValueLabels = field.GetCustomAttribute<ReFrameValueLabelsAttribute>(true) is { } valueLabels
+                        ? new[] { valueLabels.ZeroLabel, valueLabels.OneLabel }
+                        : null,
                     ApplyToAvatar = field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) != null,
                 };
 
@@ -2089,7 +2177,18 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (menuOnly != null)
                     entry.LockedValue = menuOnly.FixedValue;
                 else if (valueLocked != null)
+                {
                     entry.LockedValue = valueLocked.FixedValue;
+                    entry.LockedLabel = string.IsNullOrEmpty(valueLocked.Label) ? null : valueLocked.Label;
+                }
+
+                var valueChoices = field.GetCustomAttribute<ReFrameValueChoicesAttribute>(true);
+                if (valueChoices != null && valueChoices.Choices.Count > 0)
+                {
+                    entry.ValueChoices = new ReFrameMenuGrouping.ParameterUsage();
+                    foreach (var (value, label) in valueChoices.Choices)
+                        entry.ValueChoices.AddChoice(value, label);
+                }
 
                 var bundle = field.GetCustomAttribute<ReFrameBundleMemberAttribute>(true);
                 entry.BundleRepresentative = bundle?.RepresentativeParameterName;
@@ -2118,7 +2217,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                                 !_declaredParameterNames.Contains(link.Name)
                                 && countedLinks.Add(link.Name)
                             )
+                            {
                                 entry.BitCost += link.Bits;
+                                entry.LinkBits += link.Bits;
+                            }
                     entry.ParameterNames.Add(attribute.ParameterName);
 
                     var inMenu = usages.TryGetValue(attribute.ParameterName, out var usage);
@@ -2152,6 +2254,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var deletesLayers =
                     field.GetCustomAttributes<ReFrameDeleteLayerAttribute>(true).Any()
                     || field.GetCustomAttributes<ReFrameDeleteStateAttribute>(true).Any()
+                    || field.GetCustomAttributes<ReFrameRedirectStateAttribute>(true).Any()
                     || field.GetCustomAttributes<ReFrameMenuRemoveAttribute>(true).Any();
 
                 if (entry.Parameters.Count == 0 && !deletesObjects && !entry.BlendShapeRow && !deletesLayers)
@@ -2208,6 +2311,57 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 node.Entries.Add(child.Entries[0]);
                 node.Children.RemoveAt(i);
             }
+        }
+
+        /// <summary>
+        /// [ReFrameBundleMember] の行を、同じ見出し内にある代表 (その ParameterName を [ReFrameDelete] で
+        /// 宣言している行) の直後へ並べ替える。行の並びはフィールドの宣言順 (派生クラスの分が基底より先に
+        /// 来る) なので、派生側で足した道連れ行が代表より上に出ることがあった (kaguya の「なで (軸・カメラ)」
+        /// が「エモート (VRCEmote)」の上に出ていた)。代表が同じ見出しに無い行はそのまま。
+        /// </summary>
+        static void OrderBundleMembers(GroupNode node)
+        {
+            OrderBundleMembers(node.Entries);
+            foreach (var child in node.Children)
+                OrderBundleMembers(child);
+        }
+
+        static void OrderBundleMembers(List<EntryInfo> entries)
+        {
+            if (entries.Count < 2)
+                return;
+
+            var ordered = new List<EntryInfo>(entries.Count);
+            var placed = new HashSet<EntryInfo>();
+            foreach (var entry in entries)
+            {
+                if (placed.Contains(entry))
+                    continue;
+                // 道連れ行で、代表がこの見出しに居るなら代表の番で並べる。
+                if (
+                    !string.IsNullOrEmpty(entry.BundleRepresentative)
+                    && entries.Any(e => e != entry && e.ParameterNames.Contains(entry.BundleRepresentative))
+                )
+                    continue;
+
+                ordered.Add(entry);
+                placed.Add(entry);
+                foreach (var member in entries)
+                {
+                    if (placed.Contains(member) || string.IsNullOrEmpty(member.BundleRepresentative))
+                        continue;
+                    if (!entry.ParameterNames.Contains(member.BundleRepresentative))
+                        continue;
+                    ordered.Add(member);
+                    placed.Add(member);
+                }
+            }
+            foreach (var entry in entries)
+                if (placed.Add(entry))
+                    ordered.Add(entry);
+
+            entries.Clear();
+            entries.AddRange(ordered);
         }
 
         static void SortGroups(GroupNode node, ReFrameGroupOrderAttribute order)
@@ -2504,11 +2658,16 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             syncTile = Sync;
             Sync();
 
-            _deletableTotal += entry.BitCost;
-            _bitProbes.Add(() =>
+            // 行をまたいで同じパラメーターを二重に数えない。リンク先の分 (entry.LinkBits) は BuildTree 側で
+            // 既に一意になっている。
+            foreach (var name in entry.ParameterNames)
+                if (_deletableCounted.Add(name) && _bitUsage.TryGetValue(name, out var ownBits))
+                    _deletableTotal += ownBits;
+            _deletableTotal += entry.LinkBits;
+            _freeingProbes.Add(() =>
                 enabledProp.boolValue || cascadedByRepresentative || questForced
-                    ? entry.BitCost
-                    : 0
+                    ? entry.ParameterNames
+                    : System.Linq.Enumerable.Empty<string>()
             );
 
             var menuOnlyRow = entry.Field.GetCustomAttribute<ReFrameMenuOnlyAttribute>(true) != null;
@@ -2653,7 +2812,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         + "、当たり判定 " + keptChecks + " / 上限 64"
                         + (char)10
                         + "この 3 つが上限を超えているとアップロードできません。"
-                        + "数字は削除を通す前のシーンの値なので、実際はこれよりかなり小さくなります。"
+                        + "数字は削除を通す前のシーンの値なので、実際は削除した分だけ小さくなります。"
                         + "どれを消すと何本減るかの<b>比較</b>には使えますが、上限との比較には使えません。";
                 }
 
@@ -3014,6 +3173,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         {
             if (entry.BlendShapeRow)
                 return ValueKind.Slider;
+            if (entry.ValueChoices != null)
+                return ValueKind.Choice;
             var usage = entry.Usage;
             if (usage != null && usage.Choices.Count >= 2)
                 return ValueKind.Choice;
@@ -3040,9 +3201,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             switch (entry.Kind)
             {
                 case ValueKind.Choice:
-                    return BuildChoiceDropdown(entry.Usage, valueProp, trackHost, onValueChanged, entry.ZeroChoiceLabel);
+                    return BuildChoiceDropdown(entry.ValueChoices ?? entry.Usage, valueProp, trackHost, onValueChanged, entry.ZeroChoiceLabel);
                 case ValueKind.OnOff:
-                    return BuildOnOffTile(valueProp, entry.Reversed, trackHost, onValueChanged);
+                    return BuildOnOffTile(valueProp, entry, trackHost, onValueChanged);
                 default:
                 {
                     var low = entry.Usage != null && entry.Usage.TwoOrFourAxisPuppetAxis ? -1f : 0f;
@@ -3070,15 +3231,19 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             tile.AddToClassList("reframe-entry__tile--value");
 
             string text;
-            if (entry.Kind == ValueKind.OnOff)
+            var choiceSource = entry.ValueChoices ?? entry.Usage;
+            if (entry.LockedLabel != null)
             {
-                var raw = locked >= 0.5f;
-                text = ((entry.Reversed ? !raw : raw) ? "ON" : "OFF") + " 固定";
+                text = entry.LockedLabel;
             }
-            else if (entry.Usage != null)
+            else if (entry.Kind == ValueKind.OnOff)
+            {
+                text = entry.OnOffText(locked >= 0.5f) + " 固定";
+            }
+            else if (choiceSource != null)
             {
                 text = $"{locked:0.##} 固定";
-                foreach (var (value, controlName) in entry.Usage.Choices)
+                foreach (var (value, controlName) in choiceSource.Choices)
                 {
                     if (!Mathf.Approximately(value, locked))
                         continue;
@@ -3168,7 +3333,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         /// <summary>Bool の Value。</summary>
         VisualElement BuildOnOffTile(
             SerializedProperty valueProp,
-            bool reversed,
+            EntryInfo entry,
             VisualElement trackHost,
             System.Action onValueChanged
         )
@@ -3185,8 +3350,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
 
                 var raw = valueProp.floatValue >= 0.5f;
-                var on = reversed ? !raw : raw;
-                label.text = on ? "ON" : "OFF";
+                var on = entry.Reversed ? !raw : raw;
+                label.text = entry.OnOffText(raw);
                 if (on)
                     tile.AddToClassList("reframe-entry__tile--on");
                 else

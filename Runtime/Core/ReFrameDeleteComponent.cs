@@ -765,6 +765,38 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
+        /// <summary>[ReFrameRedirectState] で宣言された「削除するときに繋ぎ変えるステート」を列挙する。</summary>
+        public IEnumerable<(string LayerName, string FromState, string ToState)> EnumerateRedirectStateTargets()
+        {
+            var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
+
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+
+                var entry = (ReFrameDeleteEntry)field.GetValue(this);
+                if (!IsDeleting(field, entry, deletingRepresentativeParams))
+                    continue;
+
+                foreach (var attr in field.GetCustomAttributes<ReFrameRedirectStateAttribute>(true))
+                {
+                    if (
+                        string.IsNullOrEmpty(attr.LayerName)
+                        || string.IsNullOrEmpty(attr.FromState)
+                        || string.IsNullOrEmpty(attr.ToState)
+                    )
+                        continue;
+                    if (
+                        attr.OnlyWhenValue.HasValue
+                        && !Mathf.Approximately(attr.OnlyWhenValue.Value, ResolveEffectiveValue(field, entry))
+                    )
+                        continue;
+                    yield return (attr.LayerName, attr.FromState, attr.ToState);
+                }
+            }
+        }
+
         /// <summary>[ReFrameDeleteObject] で宣言された「削除するときに破棄する GameObject」のパスを列挙する。</summary>
         public IEnumerable<string> EnumerateDeleteObjectPaths()
         {
