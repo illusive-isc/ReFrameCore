@@ -1434,6 +1434,83 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
         }
 
+        /// <summary>[ReFrameMenuFlatten]: サブメニューの中身を親へ繰り上げ、サブメニュー自体を外す。戻り値は外したサブメニューの数。</summary>
+        static int ApplyMenuFlattens(VRCExpressionsMenu baseMenu, ReFrameDeleteComponent[] components)
+        {
+            var flattened = 0;
+            foreach (var component in components)
+            {
+                if (component == null)
+                    continue;
+                foreach (var path in component.EnumerateMenuFlattens())
+                {
+                    var segments = path.Split('/');
+                    var parent = baseMenu;
+                    for (var i = 0; i < segments.Length - 1 && parent != null; i++)
+                        parent = ReFrameMenuUtil.FindSubMenu(parent, segments[i]);
+                    var leafName = segments[segments.Length - 1];
+                    var target = parent?.controls.FirstOrDefault(c =>
+                        c != null && c.name == leafName && c.type == VRCExpressionsMenu.Control.ControlType.SubMenu
+                    );
+                    if (parent == null || target == null)
+                    {
+                        // 既に丸ごと消えている (空になって掃除された) 場合はそれでよい。
+                        continue;
+                    }
+
+                    var children = target.subMenu != null
+                        ? target.subMenu.controls.Where(c => c != null).ToList()
+                        : new List<VRCExpressionsMenu.Control>();
+                    var toMove = children
+                        .Where(child =>
+                            !parent.controls.Any(c =>
+                                c != null
+                                && c.name == child.name
+                                && c.type == child.type
+                                && (c.parameter != null ? c.parameter.name : null)
+                                    == (child.parameter != null ? child.parameter.name : null)
+                            )
+                        )
+                        .ToList();
+                    if (parent.controls.Count - 1 + toMove.Count > VRCExpressionsMenu.MAX_CONTROLS)
+                    {
+                        Debug.LogWarning(
+                            $"[ReFrameCore] ReFrameDeletePass: [ReFrameMenuFlatten] '{path}' を繰り上げると親が {VRCExpressionsMenu.MAX_CONTROLS} 項目を超えるので、そのままにしました。"
+                        );
+                        continue;
+                    }
+
+                    var index = parent.controls.IndexOf(target);
+                    parent.controls.RemoveAt(index);
+                    foreach (var child in toMove)
+                    {
+                        parent.controls.Insert(
+                            index++,
+                            new VRCExpressionsMenu.Control
+                            {
+                                name = child.name,
+                                icon = child.icon,
+                                type = child.type,
+                                parameter = child.parameter,
+                                value = child.value,
+                                style = child.style,
+                                subMenu = child.subMenu,
+                                subParameters = child.subParameters,
+                                labels = child.labels,
+                            }
+                        );
+                    }
+                    flattened++;
+                    Debug.LogWarning(
+                        $"[ReFrameCore] ReFrameDeletePass: [ReFrameMenuFlatten] '{path}' の中身 {toMove.Count} 件を親へ繰り上げました"
+                            + (children.Count != toMove.Count ? $" (親と重複した {children.Count - toMove.Count} 件は捨てた)" : "")
+                            + "。"
+                    );
+                }
+            }
+            return flattened;
+        }
+
         /// <summary>アバター本体の expressionsMenu と、ModularAvatarMenuInstaller の menuToAppend (マージ前のソースメニュー) の両方から、対象パラメーターを参照している コントロールを削除し、空になったサブメニューを掃除する。</summary>
         static int ApplyMenuRemovals(VRCExpressionsMenu baseMenu, ReFrameDeleteComponent[] components)
         {
@@ -1582,6 +1659,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 menuRemoved += ReFrameMenuUtil.RemoveControlsByParameter(baseMenu, names);
                 menuRemoved += ApplyMenuRemovals(baseMenu, components);
                 pruned += ReFrameMenuUtil.PruneEmptySubMenus(baseMenu, protectedClones);
+                // 繰り上げは、消える項目が抜けて空サブメニューも掃除された後で行う (残った中身だけを上げる)。
+                menuRemoved += ApplyMenuFlattens(baseMenu, components);
             }
 
             Debug.LogWarning(

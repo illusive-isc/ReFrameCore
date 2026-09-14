@@ -917,6 +917,24 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
+        /// <summary>[ReFrameMenuFlatten] で宣言された「削除するときに親へ繰り上げるサブメニュー」のパスを、宣言順に列挙する。</summary>
+        public IEnumerable<string> EnumerateMenuFlattens()
+        {
+            var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
+
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                var entry = (ReFrameDeleteEntry)field.GetValue(this);
+                if (!IsDeleting(field, entry, deletingRepresentativeParams))
+                    continue;
+                foreach (var attr in field.GetCustomAttributes<ReFrameMenuFlattenAttribute>(true))
+                    if (!string.IsNullOrEmpty(attr.Path))
+                        yield return attr.Path;
+            }
+        }
+
         /// <summary>[ReFrameSetMaxParticles] で宣言された「ParticleSystem の maxParticles を下げる」指定を 列挙する。</summary>
         public IEnumerable<(string ParameterName, float Value)> EnumerateAvatarChangeParameters()
         {

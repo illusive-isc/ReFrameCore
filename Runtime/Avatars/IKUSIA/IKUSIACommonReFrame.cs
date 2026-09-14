@@ -85,6 +85,9 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // 並びは ロコモーション (0) → ハンドアニメーション (1、アバター側) → その他 (宣言順)。
         [ReFrameMenuGroup("IKUSIA_emote")]
         [ReFrameRowOrder(0)]
+        // ロコモーションを消すと IKUSIA_Loco に残るのは足固定と "sub menu" (足固定 / AFK / ジャンプ OFF) だけで、
+        // どれも姿勢変更側に同じ項目があるので、IKUSIA_Loco のサブメニューごと消す。
+        [ReFrameMenuRemove("IKUSIA_emote/IKUSIA_Loco")]
         [ReFrameValueLocked(0f)]
         [ReFrameDeleteLayer("pose", 0f)]
         [ReFrameDeleteLayer("takasa", 0f)]
