@@ -1301,6 +1301,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         {
             var bakedActiveStates = new Dictionary<Transform, bool>();
             var distinctControllers = CollectProcessedControllers(context);
+            ReFrameAnimatorUtil.BakeLog.Clear();
 
             var changed = false;
             var found = new HashSet<string>();
@@ -1353,6 +1354,25 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 Debug.LogWarning(
                     $"[ReFrameCore] ReFrameDeletePass: related BlendTree removal -> changed={relatedChanged}"
                 );
+            }
+
+            // 何を誰の都合でアバターへ焼いたかの一覧 (m_IsActive は多いので件数だけ、それ以外は全部出す)。
+            if (ReFrameAnimatorUtil.BakeLog.Count > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"[ReFrameCore] ReFrameDeletePass: 焼き付け {ReFrameAnimatorUtil.BakeLog.Count} 件 (パラメーター別):");
+                foreach (var group in ReFrameAnimatorUtil.BakeLog.GroupBy(b => b.Parameter))
+                {
+                    var active = group.Count(b => b.Property == "m_IsActive");
+                    var others = group.Where(b => b.Property != "m_IsActive").ToList();
+                    sb.Append($"\n  {group.Key}: m_IsActive {active} 件");
+                    foreach (var b in others)
+                        sb.Append($"\n    {b.Path} / {b.Property} = {b.Value}");
+                }
+                // Unity のコンソールは長いメッセージを途中で切るので、全文は Temp にも書いておく。
+                var logPath = System.IO.Path.Combine(Application.temporaryCachePath, "ReFrameBakeLog.txt");
+                try { System.IO.File.WriteAllText(logPath, sb.ToString()); } catch { /* 書けなくても致命ではない */ }
+                Debug.LogWarning(sb.ToString() + "\n(全文: " + logPath + ")");
             }
 
             var prunedChanged = false;

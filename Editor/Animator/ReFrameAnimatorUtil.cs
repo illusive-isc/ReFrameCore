@@ -61,6 +61,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
                 var changed = false;
                 foreach (var target in targets)
+                {
+                    CurrentBakeParameter = target.Name;
                     changed |= RemoveParameter(
                         controller,
                         bakeRoot,
@@ -72,12 +74,26 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         treeOverrides,
                         foundParameters
                     );
+                }
                 return changed;
             }
             finally
             {
                 NoBakeParameters = EmptyNoBake;
+                CurrentBakeParameter = null;
             }
+        }
+
+        /// <summary>RemoveParameters の実行中、いま処理しているパラメーター名 (焼き付けの記録用)。</summary>
+        static string CurrentBakeParameter;
+
+        /// <summary>焼き付けた値の記録: (処理中のパラメーター, 対象パス, プロパティ, 値)。ReFrameDeletePass が
+        /// ビルドの最後にまとめて出す (何が誰の都合でアバターに書かれたかを後から追えるように)。</summary>
+        public static readonly List<(string Parameter, string Path, string Property, string Value)> BakeLog = new();
+
+        static void RecordBake(string path, string property, string value)
+        {
+            BakeLog.Add((CurrentBakeParameter ?? "(名指し/上書き)", path, property, value));
         }
 
         /// <summary>RemoveParameters の実行中だけ有効な、固定した枝を焼き付けないパラメーター名 ([ReFrameNoBake])。</summary>
@@ -533,22 +549,33 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (hasFixedValue)
                 {
                     changed = true;
-                    return ResolveMatchedBranch(
-                        bt,
-                        controller,
-                        param,
-                        value,
-                        matchValue,
-                        matchType,
-                        // [ReFrameNoBake] のツリーは枝を消すだけで、選ばれた枝のクリップをアバターへ焼かない
-                        // (bakeRoot が null なら BakeClip / BakeBlendedState は何も書かない)。
-                        NoBakeParameters.Contains(bt.BlendParameter) ? null : bakeRoot,
-                        bakedActiveStates,
-                        allValues,
-                treeOverrides,
-                        ref changed,
-                        conditional
-                    );
+                    // 焼き付けの記録は「いま処理中のパラメーター」ではなく、このツリーのパラメーターに付ける
+                    // (入れ子のツリーは別のパラメーターの処理中に allValues 経由で解決されるため)。
+                    var outerBakeParameter = CurrentBakeParameter;
+                    CurrentBakeParameter = bt.BlendParameter;
+                    try
+                    {
+                        return ResolveMatchedBranch(
+                            bt,
+                            controller,
+                            param,
+                            value,
+                            matchValue,
+                            matchType,
+                            // [ReFrameNoBake] のツリーは枝を消すだけで、選ばれた枝のクリップをアバターへ焼かない
+                            // (bakeRoot が null なら BakeClip / BakeBlendedState は何も書かない)。
+                            NoBakeParameters.Contains(bt.BlendParameter) ? null : bakeRoot,
+                            bakedActiveStates,
+                            allValues,
+                            treeOverrides,
+                            ref changed,
+                            conditional
+                        );
+                    }
+                    finally
+                    {
+                        CurrentBakeParameter = outerBakeParameter;
+                    }
                 }
 
             }
@@ -2180,6 +2207,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var target = ResolveBindingTarget(binding.path, root);
             if (target == null)
                 return;
+            // Humanoid のカーブ (RootT/RootQ/筋肉) は何も書かないので記録しない。
+            if (binding.type != typeof(Animator))
+                RecordBake(binding.path, binding.propertyName, value.ToString("0.###"));
 
             if (binding.type == typeof(GameObject) && binding.propertyName == "m_IsActive")
             {
@@ -2338,6 +2368,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             const string materialPrefix = "m_Materials.Array.data[";
             if (!binding.propertyName.StartsWith(materialPrefix))
                 return;
+            RecordBake(binding.path, binding.propertyName, value != null ? value.name : "null");
             var end = binding.propertyName.IndexOf(']', materialPrefix.Length);
             if (end < 0 || !int.TryParse(binding.propertyName[materialPrefix.Length..end], out var index))
                 return;
