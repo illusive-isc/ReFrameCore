@@ -153,12 +153,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         "[ReFrameCore] ReFrameDeletePass: cut-transition parameters = "
                             + string.Join(", ", cutTransitionParams)
                     );
+                var noBakeParams = new HashSet<string>(
+                    components.SelectMany(c => c.EnumerateNoBakeParameterNames())
+                );
+                if (noBakeParams.Count > 0)
+                    Debug.LogWarning(
+                        "[ReFrameCore] ReFrameDeletePass: no-bake parameters = " + string.Join(", ", noBakeParams)
+                    );
                 var targets = allDeleteTargets
                     .Where(t => !t.MenuOnly)
                     .Select(t => new ReFrameAnimatorUtil.ParameterTarget(
                         t.ParameterName,
                         t.Value,
-                        cutTransitionParams.Contains(t.ParameterName)
+                        cutTransitionParams.Contains(t.ParameterName),
+                        noBakeParams.Contains(t.ParameterName)
                     ))
                     .ToArray();
                 var relatedBlendTreeTargets = components

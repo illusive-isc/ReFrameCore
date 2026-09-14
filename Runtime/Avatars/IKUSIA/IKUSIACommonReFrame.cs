@@ -61,7 +61,10 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         // [ReFrameApplyToAvatar] を付けない: 付けるとアニメーターの 0.5 時点の重み (全部 0) を先にシーンへ
         // 書いてからシェイプ行が上書きする二度手間になるだけで、シェイプ行がアニメーターの触る
         // シェイプを全部カバーしているので不要。
+        // [ReFrameNoBake]: 0.5 の枝のクリップ (胸シェイプ 0・髪の回転・胸 PhysBone ON) は焼き付けず、
+        // アニメーションを消すだけにする。見た目は ReFrame のシェイプ行とシーンの状態だけで決まる。
         [ReFrameDelete("BreastSize", ReFrameParameterType.Float)]
+        [ReFrameNoBake]
         [ReFrameValueLocked(0.5f, Label = "下のシェイプで指定")]
         [ReFrameLabel("胸サイズ")]
         public ReFrameDeleteEntry breastSize = new() { Enabled = false, Value = 0.5f };

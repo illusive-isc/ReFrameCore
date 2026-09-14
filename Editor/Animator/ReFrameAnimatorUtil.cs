@@ -21,11 +21,15 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>true なら、このパラメーターを条件に使っている遷移を「条件だけ抜く」のではなく 他の条件が残っていても遷移ごと削除する ([ReFrameCutTransitions])。</summary>
             public readonly bool CutTransitions;
 
-            public ParameterTarget(string name, float value, bool cutTransitions = false)
+            /// <summary>true なら、固定した値の枝のクリップをアバターへ焼き付けない ([ReFrameNoBake])。</summary>
+            public readonly bool NoBake;
+
+            public ParameterTarget(string name, float value, bool cutTransitions = false, bool noBake = false)
             {
                 Name = name;
                 Value = value;
                 CutTransitions = cutTransitions;
+                NoBake = noBake;
             }
 
             public ParameterTarget(string name, bool value)
@@ -50,21 +54,36 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             foreach (var t in targets)
                 allValues[t.Name] = t.Value;
 
-            var changed = false;
-            foreach (var target in targets)
-                changed |= RemoveParameter(
-                    controller,
-                    bakeRoot,
-                    target.Name,
-                    target.Value,
-                    target.CutTransitions,
-                    bakedActiveStates,
-                    allValues,
-                    treeOverrides,
-                    foundParameters
-                );
-            return changed;
+            // [ReFrameNoBake] のパラメーターは、自分の番だけでなく他のパラメーターの処理中に allValues 経由で
+            // 入れ子のツリーが解決されるときも焼き付けないので、静的に持って CleanMotion 側で参照する。
+            NoBakeParameters = new HashSet<string>(targets.Where(t => t.NoBake).Select(t => t.Name));
+            try
+            {
+                var changed = false;
+                foreach (var target in targets)
+                    changed |= RemoveParameter(
+                        controller,
+                        bakeRoot,
+                        target.Name,
+                        target.Value,
+                        target.CutTransitions,
+                        bakedActiveStates,
+                        allValues,
+                        treeOverrides,
+                        foundParameters
+                    );
+                return changed;
+            }
+            finally
+            {
+                NoBakeParameters = EmptyNoBake;
+            }
         }
+
+        /// <summary>RemoveParameters の実行中だけ有効な、固定した枝を焼き付けないパラメーター名 ([ReFrameNoBake])。</summary>
+        static HashSet<string> NoBakeParameters = EmptyNoBake;
+
+        static readonly HashSet<string> EmptyNoBake = new();
 
         /// <summary>焼き付けでマテリアルのプロパティを書くときに、書いてよい (複製済みの) マテリアルを 返す関数。</summary>
         public static System.Func<Renderer, int, Material> MaterialWriter;
@@ -521,7 +540,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         value,
                         matchValue,
                         matchType,
-                        bakeRoot,
+                        // [ReFrameNoBake] のツリーは枝を消すだけで、選ばれた枝のクリップをアバターへ焼かない
+                        // (bakeRoot が null なら BakeClip / BakeBlendedState は何も書かない)。
+                        NoBakeParameters.Contains(bt.BlendParameter) ? null : bakeRoot,
                         bakedActiveStates,
                         allValues,
                 treeOverrides,
