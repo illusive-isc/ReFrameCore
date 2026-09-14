@@ -70,6 +70,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             /// <summary>[ReFrameValueLocked(Label = ...)]: 固定値タイルの文言。無ければ null。</summary>
             public string LockedLabel;
 
+            /// <summary>[ReFrameRowOrder]: 同じ見出し内の並び順 (無ければ 1000)。</summary>
+            public int RowOrder = 1000;
+
             /// <summary>生の値に対応する ON/OFF タイルの表示名。</summary>
             public string OnOffText(bool raw)
             {
@@ -2173,6 +2176,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         ? new[] { valueLabels.ZeroLabel, valueLabels.OneLabel }
                         : null,
                     ApplyToAvatar = field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) != null,
+                    RowOrder = field.GetCustomAttribute<ReFrameRowOrderAttribute>(true)?.Order ?? 1000,
                 };
 
                 var menuOnly = field.GetCustomAttribute<ReFrameMenuOnlyAttribute>(true);
@@ -2335,7 +2339,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             if (entries.Count < 2)
                 return;
 
-            var ordered = new List<EntryInfo>(entries.Count);
+            // 「代表 + その道連れ」を 1 単位にまとめ、単位ごとに [ReFrameRowOrder] で安定ソートする
+            // (付いていない行は 1000 = 元の並び)。
+            var units = new List<List<EntryInfo>>();
             var placed = new HashSet<EntryInfo>();
             foreach (var entry in entries)
             {
@@ -2348,7 +2354,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 )
                     continue;
 
-                ordered.Add(entry);
+                var unit = new List<EntryInfo> { entry };
                 placed.Add(entry);
                 foreach (var member in entries)
                 {
@@ -2356,16 +2362,24 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         continue;
                     if (!entry.ParameterNames.Contains(member.BundleRepresentative))
                         continue;
-                    ordered.Add(member);
+                    unit.Add(member);
                     placed.Add(member);
                 }
+                units.Add(unit);
             }
             foreach (var entry in entries)
                 if (placed.Add(entry))
-                    ordered.Add(entry);
+                    units.Add(new List<EntryInfo> { entry });
+
+            var sorted = units
+                .Select((unit, index) => (Unit: unit, Index: index))
+                .OrderBy(u => u.Unit[0].RowOrder)
+                .ThenBy(u => u.Index)
+                .SelectMany(u => u.Unit)
+                .ToList();
 
             entries.Clear();
-            entries.AddRange(ordered);
+            entries.AddRange(sorted);
         }
 
         static void SortGroups(GroupNode node, ReFrameGroupOrderAttribute order)

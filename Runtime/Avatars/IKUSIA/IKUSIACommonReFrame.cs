@@ -79,9 +79,28 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         [ReFrameDelete("EmoteMirror", ReFrameParameterType.Bool)]
         [ReFrameLabel("エモートの左右反転")]
         public ReFrameDeleteEntry emoteMirror = new() { Enabled = false, Value = 0f };
+        // ロコモーション本体の削除を、その見出しの一番上に置く (行の並びは宣言順)。
+        [ReFrameLabel("ロコモーション (ポーズ・身長)")]
+        // サブ見出しに入れると 1 行だけの見出しは親へ畳まれて末尾に回るので、直下に置く。
+        // 並びは ロコモーション (0) → ハンドアニメーション (1、アバター側) → その他 (宣言順)。
+        [ReFrameMenuGroup("IKUSIA_emote")]
+        [ReFrameRowOrder(0)]
+        [ReFrameValueLocked(0f)]
+        [ReFrameDeleteLayer("pose", 0f)]
+        [ReFrameDeleteLayer("takasa", 0f)]
+        [ReFrameDeleteLayer("takasalimit", 0f)]
+        [ReFrameDelete("paryi_chang_Loco", ReFrameParameterType.Float)]
+        [ReFrameDelete("Mirror", ReFrameParameterType.Bool)]
+        [ReFrameDelete("takasa_Toggle", ReFrameParameterType.Bool)]
+        public ReFrameDeleteEntry ikusiaLoco = new() { Enabled = false, Value = 0f };
+
+        // AFK / ジャンプモーション OFF / 足固定は paryi_Loco 側のパラメーターで、メニューでは姿勢変更と
+        // IKUSIA_Loco の両方に出る。どちらの見出しにも属さない共通項目として「エモート・姿勢」の直下に置く。
+        [ReFrameMenuGroup("IKUSIA_emote")]
         [ReFrameDelete("paryi_AFK", ReFrameParameterType.Bool)]
         [ReFrameLabel("AFK")]
         public ReFrameDeleteEntry afk = new() { Enabled = false, Value = 0f };
+        [ReFrameMenuGroup("IKUSIA_emote")]
         [ReFrameDelete("paryi_Jump_cancel", ReFrameParameterType.Bool)]
         [ReFrameLabel("ジャンプモーション OFF")]
         public ReFrameDeleteEntry jumpCancel = new() { Enabled = false, Value = 1f };
@@ -92,7 +111,7 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         [ReFrameDelete("paryi_Jump", ReFrameParameterType.Bool)]
         public ReFrameDeleteEntry viewpointOneShot = new() { Enabled = true, Value = 0f };
 
-        [ReFrameMenuGroup("IKUSIA_emote", "姿勢変更")]
+        [ReFrameMenuGroup("IKUSIA_emote")]
         [ReFrameDelete("leg fixed", ReFrameParameterType.Bool)]
         [ReFrameLabel("足固定")]
         public ReFrameDeleteEntry legFixed = new() { Enabled = false, Value = 0f };
@@ -146,15 +165,5 @@ namespace jp.illusive_isc.ReFrame.IKUSIA
         [ReFrameLabel("浮遊の左右反転")]
         public ReFrameDeleteEntry floatingMirror = new() { Enabled = false, Value = 0f };
 
-        [ReFrameLabel("ロコモーション (ポーズ・身長)")]
-        [ReFrameMenuGroup("IKUSIA_emote", "IKUSIA_Loco")]
-        [ReFrameValueLocked(0f)]
-        [ReFrameDeleteLayer("pose", 0f)]
-        [ReFrameDeleteLayer("takasa", 0f)]
-        [ReFrameDeleteLayer("takasalimit", 0f)]
-        [ReFrameDelete("paryi_chang_Loco", ReFrameParameterType.Float)]
-        [ReFrameDelete("Mirror", ReFrameParameterType.Bool)]
-        [ReFrameDelete("takasa_Toggle", ReFrameParameterType.Bool)]
-        public ReFrameDeleteEntry ikusiaLoco = new() { Enabled = false, Value = 0f };
     }
 }
