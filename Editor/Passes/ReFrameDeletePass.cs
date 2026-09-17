@@ -80,6 +80,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 return;
             DestroyedObjectPaths.Clear();
 
+            DetachRootAnimatorController(context);
+
             ReFrameSweepPass.TakeSnapshot(context);
 
             DeduplicateExpressionParameters(context);
@@ -1142,6 +1144,26 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             "ScaleFactor", "ScaleFactorInverse", "EyeHeightAsMeters", "EyeHeightAsPercent",
             "IsAnimatorEnabled", "PreviewMode", "VRCFaceBlendH", "VRCFaceBlendV", "VRCEmote",
         };
+
+        /// <summary>
+        /// ルート Animator の Controller は VRChat では使われない (Descriptor の層が使われる) が、NDMF はこれもアバターのコントローラーとして
+        /// 仮想化し、コンテキスト解除の commit で <c>animator.runtimeAnimatorController</c> に書き戻す。エディタでコントローラーを代入すると
+        /// Unity が既定ステートを time 0 で評価してシーンに書くため、ReFrame が焼いた m_IsActive (衣装 OFF 等) が元の FX の既定値で
+        /// 上書きされて衣装が復活する。ReFrame の計算では見ない扱いにする: 仮想化から外し (ForgetController)、実体からも外す。
+        /// </summary>
+        static void DetachRootAnimatorController(BuildContext context)
+        {
+            var animator = context.AvatarRootObject.GetComponent<Animator>();
+            if (animator == null || animator.runtimeAnimatorController == null)
+                return;
+            var name = animator.runtimeAnimatorController.name;
+            context.Extension<AnimatorServicesContext>().ControllerContext.ForgetController(animator);
+            animator.runtimeAnimatorController = null;
+            Debug.LogWarning(
+                $"[ReFrameCore] ReFrameDeletePass: ルート Animator の Controller '{name}' はビルドでは使われないので外しました "
+                    + "(NDMF の commit で既定ステートが評価され、焼き付けた m_IsActive が戻るのを防ぐため)。"
+            );
+        }
 
         /// <summary>元から死んでいる構造を、削除設定と無関係に片付ける。</summary>
         static void CleanDeadAnimatorStructure(BuildContext context)
