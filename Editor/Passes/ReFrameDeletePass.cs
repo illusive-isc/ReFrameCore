@@ -88,6 +88,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             CleanDeadAnimatorStructure(context);
 
+            DetachBlendShapes(context, components);
+
             var allDeleteTargets = components.SelectMany(c => c.EnumerateDeleteTargets()).ToList();
 
             ReFrameAnimatorUtil.MaterialWriter = CreateMaterialWriter(context);
@@ -1162,6 +1164,65 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             Debug.LogWarning(
                 $"[ReFrameCore] ReFrameDeletePass: ルート Animator の Controller '{name}' はビルドでは使われないので外しました "
                     + "(NDMF の commit で既定ステートが評価され、焼き付けた m_IsActive が戻るのを防ぐため)。"
+            );
+        }
+
+        /// <summary>
+        /// [ReFrameDetachBlendShape] の BlendShape を全コントローラーのクリップから外す。行の固定より前に行うので焼き付けもされず、
+        /// 値はメッシュ側のスライダーだけで決まる (例: アウター着脱と同じクリップで動く髪の Outer_on を、アウターを消したあとも髪側で決める)。
+        /// </summary>
+        static void DetachBlendShapes(BuildContext context, ReFrameDeleteComponent[] components)
+        {
+            var targets = components
+                .SelectMany(c => c.EnumerateDetachedBlendShapes())
+                .Distinct()
+                .ToList();
+            if (targets.Count == 0)
+                return;
+
+            var avatarRoot = context.AvatarRootTransform;
+            var wanted = new Dictionary<Transform, HashSet<string>>();
+            var missing = new List<string>();
+            foreach (var (path, shape) in targets)
+            {
+                var t = ReFrameUtil.Find(avatarRoot, path.Split('/'));
+                if (t == null)
+                {
+                    missing.Add(path + "/" + shape);
+                    continue;
+                }
+                if (!wanted.TryGetValue(t, out var set))
+                    wanted[t] = set = new HashSet<string>();
+                set.Add("blendShape." + shape);
+            }
+            if (missing.Count > 0)
+                Debug.LogWarning(
+                    "[ReFrameCore] ReFrameDeletePass: [ReFrameDetachBlendShape] の対象が見つかりません = " + string.Join(", ", missing)
+                );
+
+            var removed = 0;
+            var touchedClips = new HashSet<VirtualClip>();
+            foreach (var (controller, bakeRoot) in CollectProcessedControllers(context))
+            {
+                foreach (var clip in controller.AllReachableNodes().OfType<VirtualClip>().Distinct())
+                {
+                    foreach (var binding in clip.GetFloatCurveBindings().ToList())
+                    {
+                        if (binding.type != typeof(SkinnedMeshRenderer) || !binding.propertyName.StartsWith("blendShape."))
+                            continue;
+                        var target = string.IsNullOrEmpty(binding.path) ? bakeRoot : ReFrameUtil.Find(bakeRoot, binding.path.Split('/'));
+                        if (target == null || !wanted.TryGetValue(target, out var set) || !set.Contains(binding.propertyName))
+                            continue;
+                        clip.SetFloatCurve(binding, null);
+                        removed++;
+                        touchedClips.Add(clip);
+                    }
+                }
+            }
+            Debug.LogWarning(
+                "[ReFrameCore] ReFrameDeletePass: [ReFrameDetachBlendShape] "
+                    + string.Join(", ", targets.Select(t => t.Path + "/" + t.ShapeName))
+                    + $" -> removed {removed} curve(s) from {touchedClips.Count} clip(s)。値はメッシュのスライダーで決まります。"
             );
         }
 

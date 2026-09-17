@@ -1149,6 +1149,22 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
+        /// <summary>[ReFrameDetachBlendShape] で宣言された「アニメーターから切り離す BlendShape」(パス, シェイプ名) を列挙する。クラスと全フィールドの分。</summary>
+        public IEnumerable<(string Path, string ShapeName)> EnumerateDetachedBlendShapes()
+        {
+            foreach (var attr in GetType().GetCustomAttributes<ReFrameDetachBlendShapeAttribute>(true))
+                if (!string.IsNullOrEmpty(attr.Path) && !string.IsNullOrEmpty(attr.ShapeName))
+                    yield return (attr.Path, attr.ShapeName);
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                foreach (var attr in field.GetCustomAttributes<ReFrameDetachBlendShapeAttribute>(true))
+                    if (!string.IsNullOrEmpty(attr.Path) && !string.IsNullOrEmpty(attr.ShapeName))
+                        yield return (attr.Path, attr.ShapeName);
+            }
+        }
+
         /// <summary>[ReFrameBlendTreeOverride] で宣言された「このツリーの中ではこのパラメーターをこの値とみなす」 指定を列挙する。</summary>
         public IEnumerable<(string TreeName, string ParameterName, float Value, bool Always)> EnumerateBlendTreeOverrides()
         {
