@@ -48,10 +48,19 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             var target = ForQuest(avatarRoot) ? "Quest (テクスチャは ASTC で書き出します)" : "PC (Windows)";
             var folder = PlanFolder(avatarRoot);
+            var active = ReFrameDeleteComponent.ActiveIn(avatarRoot);
+            var inactive = avatarRoot
+                .GetComponentsInChildren<ReFrameDeleteComponent>(true)
+                .Where(c => c != null && !active.Contains(c))
+                .ToArray();
+            var usedLine = "・使う設定: " + string.Join(", ", active.Select(Describe).Distinct());
+            if (inactive.Length > 0)
+                usedLine += " — " + string.Join(", ", inactive.Select(Describe).Distinct()) + " は今のターゲットでは使われないので外れます";
             var ok = EditorUtility.DisplayDialog(
                 "ReFrame 焼き込み",
                 "ヒエラルキー上のこのアバターを、ReFrame の設定を適用した状態に書き換えます。\n\n"
                     + "・ビルドターゲット: " + target + " の設定で焼きます\n"
+                    + usedLine + "\n"
                     + "・FX / メニュー / パラメーター / クリップの複製を " + folder + " に置き、アバターはそこを参照するように張り替えます\n"
                     + "・元のプレハブとの繋がりは切れ、同じ場所に新しいプレハブとして保存します\n"
                     + "・ReFrame のコンポーネントは全部外れ、この後は設定を変えられません (元のプレハブは触らず、焼く前の姿も同じ場所に「(焼き込み前).prefab」として控えます)\n\n"
@@ -197,6 +206,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             Debug.Log("[ReFrameCore] ReFrameBake: '" + clone.name + "' を焼き込みました → " + folder);
             return clone;
         }
+
+        static string Describe(ReFrameDeleteComponent c) =>
+            c.GetType().Name + (c.IsQuestVariant ? " (Quest 簡易対応版)" : " (PC 用)");
 
         static bool IsQuestTarget => EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android;
 
