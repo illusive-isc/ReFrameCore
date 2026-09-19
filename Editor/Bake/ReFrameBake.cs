@@ -46,7 +46,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 return;
             }
 
-            var target = ForQuest(avatarRoot) ? "Quest (テクスチャは ASTC で書き出します)" : "PC (Windows)";
+            var target = ForQuest(avatarRoot)
+                ? "Quest 用 (テクスチャは ASTC で書き出します)"
+                : "PC 用";
             var folder = PlanFolder(avatarRoot);
             var active = ReFrameDeleteComponent.ActiveIn(avatarRoot);
             var inactive = avatarRoot
@@ -59,7 +61,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var ok = EditorUtility.DisplayDialog(
                 "ReFrame 焼き込み",
                 "ヒエラルキー上のこのアバターを、ReFrame の設定を適用した状態に書き換えます。\n\n"
-                    + "・ビルドターゲット: " + target + " の設定で焼きます\n"
+                    + "・" + target + " として焼きます (プレビューで表示している側)\n"
                     + usedLine + "\n"
                     + "・FX / メニュー / パラメーター / クリップの複製を " + folder + " に置き、アバターはそこを参照するように張り替えます\n"
                     + "・元のプレハブとの繋がりは切れ、同じ場所に新しいプレハブとして保存します\n"
@@ -117,6 +119,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             var clone = Object.Instantiate(avatarRoot);
             clone.name = folderName;
+            // プレビューの PC / Quest 切り替えは元のインスタンス ID に紐付いているので、複製にも同じ側を写す。
+            var previewSide = ReFramePreviewSide.Get(avatarRoot);
+            if (previewSide.HasValue)
+                ReFrameDeleteComponent.PreviewQuestOverride[clone.GetInstanceID()] = previewSide.Value;
             clone.transform.SetParent(avatarRoot.transform.parent, false);
             clone.transform.localPosition = avatarRoot.transform.localPosition;
             clone.transform.localRotation = avatarRoot.transform.localRotation;
@@ -189,6 +195,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             finally
             {
                 ReFrameQuestMaterialConverter.ForceQuestFormat = previousForce;
+                ReFrameDeleteComponent.PreviewQuestOverride.Remove(clone.GetInstanceID());
                 if (bundlePath != null && File.Exists(bundlePath))
                     AssetDatabase.DeleteAsset(bundlePath);
                 if (containerFolder != null && AssetDatabase.IsValidFolder(containerFolder))
@@ -212,9 +219,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
         static bool IsQuestTarget => EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android;
 
-        /// <summary>Quest 向けの焼き込みか (Android ターゲット、または Quest 変換が有効な設定がある)。</summary>
-        static bool ForQuest(GameObject avatarRoot) =>
+        /// <summary>Quest 向けの焼き込みか (Android ターゲット、または Quest 変換が有効な設定がある)。プレビューの PC / Quest 切り替えに従う。</summary>
+        public static bool ForQuest(GameObject avatarRoot) =>
             IsQuestTarget || ReFrameDeleteComponent.ActiveIn(avatarRoot).Any(c => c.QuestConversionActive);
+
+        /// <summary>ボタンやダイアログに出す「何用」の表記。</summary>
+        public static string TargetLabel(GameObject avatarRoot) => ForQuest(avatarRoot) ? "Quest 用" : "PC 用";
 
         /// <summary>Assets/ReFrameBaked/元のプレハブ名/ヒエラルキー上の名前 (既にあれば " (2)" …)。</summary>
         public static string PlanFolder(GameObject avatarRoot)

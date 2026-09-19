@@ -1912,16 +1912,20 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             {
                 if (descriptor != null)
                     ReFrameBake.BakeWithDialog(descriptor.gameObject);
-            })
-            {
-                text = "この設定をアバターへ焼き込む (ReFrame を外す)",
-            };
+            });
+            string Label() =>
+                descriptor == null
+                    ? "アバターへ焼き込む (ReFrame を外す)"
+                    : ReFrameBake.TargetLabel(descriptor.gameObject) + "としてアバターへ焼き込む (ReFrame を外す)";
+            button.text = Label();
+            // プレビューの PC / Quest 切り替えに追随する。
+            button.schedule.Execute(() => button.text = Label()).Every(500);
             button.style.height = 26;
             button.SetEnabled(descriptor != null && !EditorApplication.isPlayingOrWillChangePlaymode);
             box.Add(button);
             box.Add(
                 new HelpBox(
-                    "ビルド時ではなく今ここで削除を適用し、FX / メニュー / パラメーターの複製を "
+                    "プレビューで表示している側 (PC 用 / Quest 簡易対応版) の設定を、ビルド時ではなく今ここで適用し、FX / メニュー / パラメーターの複製を "
                         + ReFrameBake.RootFolder
                         + " 以下に置いてアバターを張り替えます。ReFrame のコンポーネントは外れて設定は変えられなくなります (元のプレハブは触りません)。",
                     HelpBoxMessageType.None
