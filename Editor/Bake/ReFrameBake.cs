@@ -54,7 +54,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     + "・ビルドターゲット: " + target + " の設定で焼きます\n"
                     + "・FX / メニュー / パラメーター / クリップの複製を " + folder + " に置き、アバターはそこを参照するように張り替えます\n"
                     + "・元のプレハブとの繋がりは切れ、同じ場所に新しいプレハブとして保存します\n"
-                    + "・ReFrame のコンポーネントは全部外れ、この後は設定を変えられません (元のプレハブは触りません)\n\n"
+                    + "・ReFrame のコンポーネントは全部外れ、この後は設定を変えられません (元のプレハブは触らず、焼く前の姿も同じ場所に「(焼き込み前).prefab」として控えます)\n\n"
                     + "この操作は元に戻せません。続けますか?",
                 "焼き込む",
                 "やめる"
@@ -180,6 +180,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     AssetDatabase.DeleteAsset(containerFolder);
             }
 
+            // 焼く前の姿 (ReFrame の設定込み) を同じ置き場に控えておく。設定がシーンにしか無いアバターを戻せるように。
+            PrefabUtility.SaveAsPrefabAsset(avatarRoot, folder + "/" + folderName + " (焼き込み前).prefab");
+
             var siblingIndex = avatarRoot.transform.GetSiblingIndex();
             Undo.RegisterCreatedObjectUndo(clone, "ReFrame: 焼き込み");
             Undo.DestroyObjectImmediate(avatarRoot);
@@ -247,13 +250,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             EnsureFolder(folder);
             var used = new HashSet<string>();
+            // 参照される側 (テクスチャ・メッシュ・クリップ) を先に置く。CreateAsset はその時点の参照先で書き出すので、
+            // 参照する側を先に書くと消える予定のコンテナを指したまま残る。
+            var roots = all.Where(o => !owner.ContainsKey(o)).OrderBy(SaveOrder).ToList();
             try
             {
                 AssetDatabase.StartAssetEditing();
-                foreach (var asset in all)
+                foreach (var asset in roots)
                 {
-                    if (owner.ContainsKey(asset))
-                        continue;
                     AssetDatabase.RemoveObjectFromAsset(asset);
                     asset.hideFlags = HideFlags.None;
                     AssetDatabase.CreateAsset(asset, UniquePath(folder, asset, used));
@@ -268,8 +272,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             finally
             {
                 AssetDatabase.StopAssetEditing();
-                AssetDatabase.SaveAssets();
             }
+            // 移動で参照先の場所が変わったので、全部を書き直す。
+            foreach (var asset in all)
+                EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssets();
         }
 
         /// <summary>元アバターの全コントローラーが参照している (ディスク上の) クリップを名前で引けるようにする。</summary>
@@ -429,6 +436,22 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     continue;
                 owner[value] = controller;
                 CollectInternals(value, controller, all, owner);
+            }
+        }
+
+        static int SaveOrder(Object asset)
+        {
+            switch (asset)
+            {
+                case Texture _: return 0;
+                case Mesh _: return 0;
+                case AvatarMask _: return 0;
+                case AnimationClip _: return 1;
+                case Material _: return 2;
+                case VRCExpressionsMenu _: return 3;
+                case VRCExpressionParameters _: return 3;
+                case AnimatorController _: return 4;
+                default: return 5;
             }
         }
 
