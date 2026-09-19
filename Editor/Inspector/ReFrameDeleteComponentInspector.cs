@@ -1436,6 +1436,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             RegisterWhenAllGoneBits(component);
 
+            root.Add(BuildBakeSection(component, descriptor));
             root.Add(BuildAltProbe());
             _building = false;
             RecomputeCascade();
@@ -1900,6 +1901,33 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     Application.OpenURL(url);
             });
             return row;
+        }
+
+        /// <summary>設定をアバターへ焼き込んで ReFrame を外すボタン。</summary>
+        static VisualElement BuildBakeSection(ReFrameDeleteComponent component, VRCAvatarDescriptor descriptor)
+        {
+            var box = new VisualElement();
+            box.style.marginTop = 14;
+            var button = new Button(() =>
+            {
+                if (descriptor != null)
+                    ReFrameBake.BakeWithDialog(descriptor.gameObject);
+            })
+            {
+                text = "この設定をアバターへ焼き込む (ReFrame を外す)",
+            };
+            button.style.height = 26;
+            button.SetEnabled(descriptor != null && !EditorApplication.isPlayingOrWillChangePlaymode);
+            box.Add(button);
+            box.Add(
+                new HelpBox(
+                    "ビルド時ではなく今ここで削除を適用し、FX / メニュー / パラメーターの複製を "
+                        + ReFrameBake.RootFolder
+                        + " 以下に置いてアバターを張り替えます。ReFrame のコンポーネントは外れて設定は変えられなくなります (元のプレハブは触りません)。",
+                    HelpBoxMessageType.None
+                )
+            );
+            return box;
         }
 
         VisualElement BuildAltProbe()

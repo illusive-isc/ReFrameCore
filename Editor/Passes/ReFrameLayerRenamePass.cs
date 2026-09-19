@@ -13,6 +13,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
     [DependsOnContext(typeof(AnimatorServicesContext))]
     public class ReFrameLayerRenamePass : Pass<ReFrameLayerRenamePass>
     {
+        /// <summary>焼き込み (ReFrameBake) からビルド外で実行する入口。</summary>
+        internal static void RunForBake(BuildContext context) => Instance.Execute(context);
+
         protected override void Execute(BuildContext context)
         {
             var renames = CollectRenames(context.AvatarRootObject);

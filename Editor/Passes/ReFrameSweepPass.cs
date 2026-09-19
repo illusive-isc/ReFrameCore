@@ -286,6 +286,55 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             snapshot.Taken = true;
         }
 
+        /// <summary>焼き込みで、いま持っているスナップショットを焼き済みコンポーネントへ写す。</summary>
+        internal static void SaveSnapshot(BuildContext context, ReFrameBakedInfo baked)
+        {
+            var snapshot = context.GetState<ReFrameSweepSnapshot>();
+            baked.sweepSnapshotTaken = snapshot.Taken;
+            baked.sweepActiveSelf = snapshot.ActiveSelf.Where(o => o != null).ToList();
+            baked.sweepActiveAnimated = snapshot.ActiveAnimated.Where(o => o != null).ToList();
+            baked.sweepEnabledRenderers = snapshot.EnabledRenderers.Where(o => o != null).ToList();
+            baked.sweepEnabledAnimated = snapshot.EnabledAnimated.Where(o => o != null).ToList();
+            baked.sweepBoneOwners = snapshot.Owners
+                .Where(kv => kv.Key != null)
+                .Select(kv => new ReFrameBakedInfo.BoneOwner
+                {
+                    bone = kv.Key,
+                    reason = snapshot.Reasons.TryGetValue(kv.Key, out var why) ? why : "",
+                    owners = kv.Value.ToArray(),
+                })
+                .ToList();
+        }
+
+        /// <summary>焼き済みコンポーネントからスナップショットを戻し、Sweep の要求も引き継ぐ (ReFrameDeletePass が削除対象なしのときに呼ぶ)。</summary>
+        internal static void RestoreSnapshot(BuildContext context, ReFrameBakedInfo baked)
+        {
+            if (baked == null || !baked.sweepSnapshotTaken)
+                return;
+            var snapshot = context.GetState<ReFrameSweepSnapshot>();
+            snapshot.ActiveSelf = new HashSet<GameObject>(baked.sweepActiveSelf.Where(o => o != null));
+            snapshot.ActiveAnimated = new HashSet<Transform>(baked.sweepActiveAnimated.Where(o => o != null));
+            snapshot.EnabledRenderers = new HashSet<Renderer>(baked.sweepEnabledRenderers.Where(o => o != null));
+            snapshot.EnabledAnimated = new HashSet<Renderer>(baked.sweepEnabledAnimated.Where(o => o != null));
+            snapshot.Owners = new Dictionary<Transform, List<Object>>();
+            snapshot.Reasons = new Dictionary<Transform, string>();
+            foreach (var entry in baked.sweepBoneOwners)
+            {
+                if (entry.bone == null)
+                    continue;
+                snapshot.Owners[entry.bone] = (entry.owners ?? new Object[0]).ToList();
+                snapshot.Reasons[entry.bone] = entry.reason ?? "";
+            }
+            snapshot.Used = new HashSet<Transform>(snapshot.Owners.Keys);
+            snapshot.Taken = true;
+            context.GetState<ReFrameSweepRequest>().Enabled = baked.SweepUnusedObjects;
+            Debug.LogWarning(
+                $"[ReFrameCore] ReFrameSweepPass: 焼き済み ({baked.bakedAt}) のスナップショットを引き継ぎました (sweep={baked.SweepUnusedObjects})."
+            );
+            // 参照を持ったまま残すと AAO が「未知のコンポーネントの参照先」として最適化を控えるので、写し終えたら外す。
+            Object.DestroyImmediate(baked);
+        }
+
         /// <summary>「使用中」の Transform (コンポーネントを持つ / ヒューマノイド / 生存 SMR のボーン / 他から参照される) を集める。</summary>
         internal static HashSet<Transform> CollectUsedTransforms(Transform root, Dictionary<Transform, string> reasons = null, Dictionary<Transform, List<Object>> owners = null)
         {
@@ -705,7 +754,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var result = new Dictionary<Transform, (string Label, Object Owner)>();
             foreach (var component in root.GetComponentsInChildren<Component>(true))
             {
-                if (component == null || component is Transform)
+                if (component == null || component is Transform || component is ReFrameBakedInfo)
                     continue;
                 if (skipShakers && IsShakerComponent(component))
                     continue;
@@ -737,7 +786,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var result = new HashSet<Transform>();
             foreach (var component in root.GetComponentsInChildren<Component>(true))
             {
-                if (component == null || component is Transform)
+                if (component == null || component is Transform || component is ReFrameBakedInfo)
                     continue;
                 if (skipShakers && IsShakerComponent(component))
                     continue;
@@ -803,7 +852,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var removed = 0;
             foreach (var component in root.GetComponentsInChildren<Component>(true))
             {
-                if (component == null || component is Transform)
+                if (component == null || component is Transform || component is ReFrameBakedInfo)
                     continue;
 
                 using var so = new SerializedObject(component);

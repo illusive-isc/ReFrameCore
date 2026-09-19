@@ -130,6 +130,58 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return false;
         }
 
+        /// <summary>ツリー内 (サブメニューも再帰的に) の各メニューの現在のコントロール数を控える。</summary>
+        public static Dictionary<VRCExpressionsMenu, int> SnapshotControlCounts(VRCExpressionsMenu menu)
+        {
+            var counts = new Dictionary<VRCExpressionsMenu, int>();
+            SnapshotControlCounts(menu, counts);
+            return counts;
+        }
+
+        static void SnapshotControlCounts(VRCExpressionsMenu menu, Dictionary<VRCExpressionsMenu, int> counts)
+        {
+            if (menu == null || counts.ContainsKey(menu))
+                return;
+            counts[menu] = menu.controls.Count(c => c != null);
+            foreach (var control in menu.controls)
+            {
+                if (
+                    control != null
+                    && control.type == VRCExpressionsMenu.Control.ControlType.SubMenu
+                    && control.subMenu != null
+                )
+                    SnapshotControlCounts(control.subMenu, counts);
+            }
+        }
+
+        /// <summary>控えた時点で既に空だったメニューを返す。ReFrame が空にしたのではないので PruneEmptySubMenus の protect に渡す。</summary>
+        public static HashSet<VRCExpressionsMenu> EmptyMenus(Dictionary<VRCExpressionsMenu, int> snapshot)
+        {
+            var result = new HashSet<VRCExpressionsMenu>();
+            if (snapshot == null)
+                return result;
+            foreach (var pair in snapshot)
+            {
+                if (pair.Key != null && pair.Value == 0)
+                    result.Add(pair.Key);
+            }
+            return result;
+        }
+
+        /// <summary>控えた時点からコントロール数が変わっていない (ReFrame が手を付けていない) メニューを返す。控えに無いメニューは含めない。</summary>
+        public static HashSet<VRCExpressionsMenu> UntouchedMenus(Dictionary<VRCExpressionsMenu, int> snapshot)
+        {
+            var result = new HashSet<VRCExpressionsMenu>();
+            if (snapshot == null)
+                return result;
+            foreach (var pair in snapshot)
+            {
+                if (pair.Key != null && pair.Key.controls.Count(c => c != null) == pair.Value)
+                    result.Add(pair.Key);
+            }
+            return result;
+        }
+
         /// <summary>
         /// 「サブメニュー 1 個しか入っていないサブメニュー」の連鎖を畳む。削除で中身が減った結果
         /// A → B → (中身) のように B が A の唯一の項目になった場合、A のコントロールを直接 B の中身へ
@@ -189,7 +241,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             return collapsed;
         }
 
-        /// <summary>メニューツリーを一番奥の階層から調べ、コントロールが 0 件になったサブメニューへの SubMenu コントロールを削除する。</summary>
+        /// <summary>メニューツリーを一番奥の階層から調べ、コントロールが 0 件になったサブメニューへの SubMenu コントロールを削除する。subMenu が未設定のコントロールは ReFrame が空にしたものではないので触らない。</summary>
         public static int PruneEmptySubMenus(VRCExpressionsMenu menu)
         {
             if (menu == null)
@@ -237,7 +289,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 c =>
                     c != null
                     && c.type == VRCExpressionsMenu.Control.ControlType.SubMenu
-                    && (c.subMenu == null || c.subMenu.controls.Count == 0)
+                    && c.subMenu != null
+                    && c.subMenu.controls.Count == 0
                     && (protect == null || !protect.Contains(c.subMenu))
             );
             return removed;

@@ -44,6 +44,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
     /// <summary>アバター上の ReFrameDeleteComponent をすべて収集し、各フィールドの [ReFrameDelete] で指定されたパラメーターを、その時点の値に固定した状態で アニメーション (ReFrameAnimatorUtil) / メニュー (ReFrameMenuUtil) / VRCExpressionParameters (ReFrameUtil) からまとめて非破壊に削除する。</summary>
     public class ReFrameVariantSelectPass : Pass<ReFrameVariantSelectPass>
     {
+        /// <summary>焼き込み (ReFrameBake) からビルド外で実行する入口。</summary>
+        internal static void RunForBake(BuildContext context) => Instance.Execute(context);
+
         protected override void Execute(BuildContext context)
         {
             var all = context.AvatarRootObject.GetComponentsInChildren<ReFrameDeleteComponent>(true);
@@ -68,6 +71,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
     [DependsOnContext(typeof(AnimatorServicesContext))]
     public class ReFrameDeletePass : Pass<ReFrameDeletePass>
     {
+        /// <summary>焼き込み (ReFrameBake) からビルド外で実行する入口。</summary>
+        internal static void RunForBake(BuildContext context) => Instance.Execute(context);
+
         protected override void Execute(BuildContext context)
         {
             var components =
@@ -77,7 +83,13 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     + $"on '{context.AvatarRootObject.name}'."
             );
             if (components.Length == 0)
+            {
+                ReFrameSweepPass.RestoreSnapshot(
+                    context,
+                    context.AvatarRootObject.GetComponentInChildren<ReFrameBakedInfo>(true)
+                );
                 return;
+            }
             DestroyedObjectPaths.Clear();
 
             DetachRootAnimatorController(context);
@@ -1715,6 +1727,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 ReFrameMenuUtil.CloneMenuTree(installer.installTargetMenu, context.AssetSaver, menuCloneCache);
 
             var targetHasContent = new Dictionary<VRCExpressionsMenu, bool>();
+            var targetHadContent = new HashSet<VRCExpressionsMenu>();
             foreach (
                 var installer in context.AvatarRootObject.GetComponentsInChildren<ModularAvatarMenuInstaller>(
                     true
@@ -1728,8 +1741,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (!ReferenceEquals(clone, installer.menuToAppend))
                     installer.menuToAppend = clone;
 
+                var appendSnapshot = ReFrameMenuUtil.SnapshotControlCounts(clone);
                 menuRemoved += ReFrameMenuUtil.RemoveControlsByParameter(clone, names);
-                pruned += ReFrameMenuUtil.PruneEmptySubMenus(clone);
+                // 掃除するのは ReFrame の削除で空になったサブメニューだけ。元から空のもの (後段のツールが
+                // 中身を入れる置き場など) は ReFrame の設定と無関係なので残す。
+                pruned += ReFrameMenuUtil.PruneEmptySubMenus(clone, ReFrameMenuUtil.EmptyMenus(appendSnapshot));
 
                 if (
                     installer.installTargetMenu != null
@@ -1738,6 +1754,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 {
                     targetHasContent.TryGetValue(targetClone, out var alreadyHasContent);
                     targetHasContent[targetClone] = alreadyHasContent || clone.controls.Count > 0;
+                    if (appendSnapshot[clone] > 0)
+                        targetHadContent.Add(targetClone);
                 }
             }
 
@@ -1765,13 +1783,27 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     if (targetHasContent.TryGetValue(cloned, out var hasContent) && hasContent)
                         protectedClones.Add(cloned);
                 }
+                // 掃除するのは ReFrame の削除で空になったサブメニューだけ、畳むのは ReFrame の削除で中身が
+                // 変わったサブメニューだけ。ユーザーが直接足したサブメニュー (中身が空、あるいはサブメニュー
+                // 1 個だけで、後段のツールが中身を入れるもの) は設定と無関係なのでそのまま残す。
+                var baseSnapshot = ReFrameMenuUtil.SnapshotControlCounts(baseMenu);
                 menuRemoved += ReFrameMenuUtil.RemoveControlsByParameter(baseMenu, names);
                 menuRemoved += ApplyMenuRemovals(baseMenu, components);
-                pruned += ReFrameMenuUtil.PruneEmptySubMenus(baseMenu, protectedClones);
+                var pruneProtect = new HashSet<VRCExpressionsMenu>(protectedClones);
+                foreach (var menu in ReFrameMenuUtil.EmptyMenus(baseSnapshot))
+                {
+                    // 元から空でも、Installer が入れるはずだった中身を ReFrame が全部消した設置先は掃除する。
+                    if (targetHadContent.Contains(menu) && !protectedClones.Contains(menu))
+                        continue;
+                    pruneProtect.Add(menu);
+                }
+                pruned += ReFrameMenuUtil.PruneEmptySubMenus(baseMenu, pruneProtect);
                 // 繰り上げは、消える項目が抜けて空サブメニューも掃除された後で行う (残った中身だけを上げる)。
                 menuRemoved += ApplyMenuFlattens(baseMenu, components);
                 // 削除の結果「サブメニュー 1 個だけ」になって階層が深いだけのものは、宣言なしで畳む。
-                var collapsedChains = ReFrameMenuUtil.CollapseSingleSubMenuChains(baseMenu, installTargets);
+                var collapseProtect = new HashSet<VRCExpressionsMenu>(installTargets);
+                collapseProtect.UnionWith(ReFrameMenuUtil.UntouchedMenus(baseSnapshot));
+                var collapsedChains = ReFrameMenuUtil.CollapseSingleSubMenuChains(baseMenu, collapseProtect);
                 if (collapsedChains > 0)
                     Debug.LogWarning(
                         $"[ReFrameCore] ReFrameDeletePass: サブメニュー 1 個だけの階層を {collapsedChains} 段畳みました。"
