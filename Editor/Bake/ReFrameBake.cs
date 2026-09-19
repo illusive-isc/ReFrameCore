@@ -142,6 +142,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 ReFrameVariantSelectPass.RunForBake(context);
                 ReFrameLayerRenamePass.RunForBake(context);
                 ReFrameDeletePass.RunForBake(context);
+                ReFrameSweepPass.SweepConfirmedForBake(context);
                 context.DeactivateAllExtensionContexts();
                 context.Serialize();
 

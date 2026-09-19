@@ -286,6 +286,21 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             snapshot.Taken = true;
         }
 
+        /// <summary>焼き込みで、削除が確定した実体 (二度と有効化されない GameObject と Renderer) だけを先に片付ける。骨とレイヤーは MA 合成後の姿が要るのでビルド時の Sweep に残す。</summary>
+        internal static void SweepConfirmedForBake(BuildContext context)
+        {
+            if (!context.GetState<ReFrameSweepRequest>().Enabled)
+                return;
+            var root = context.AvatarRootTransform;
+            var asc = context.Extension<AnimatorServicesContext>();
+            var objects = SweepPermanentlyInactiveObjects(context, root, asc);
+            var renderers = SweepPermanentlyDisabledRenderers(context, root, asc);
+            CompactColliderLists(root);
+            Debug.LogWarning(
+                $"[ReFrameCore] ReFrameBake: 削除が確定した {objects} 個の GameObject と {renderers} 個の Renderer を先に片付けました。"
+            );
+        }
+
         /// <summary>焼き込みで、いま持っているスナップショットを焼き済みコンポーネントへ写す。</summary>
         internal static void SaveSnapshot(BuildContext context, ReFrameBakedInfo baked)
         {
