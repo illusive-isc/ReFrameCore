@@ -329,7 +329,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>コントローラーが参照する AnimationClip をすべて列挙する (BlendTree を含む)。</summary>
-        static IEnumerable<AnimationClip> CollectClips(AnimatorController controller)
+        /// <summary>ステートを辿ってクリップを集める。AnimatorController.animationClips は呼ぶたびに検証が走り、元から型の合わない遷移があると警告を吐き続ける。</summary>
+        internal static IEnumerable<AnimationClip> CollectClips(AnimatorController controller)
         {
             var seen = new HashSet<Motion>();
             var found = new List<AnimationClip>();

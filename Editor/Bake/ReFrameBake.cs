@@ -84,6 +84,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 throw new InvalidOperationException("VRCAvatarDescriptor がありません。");
 
             var components = ReFrameDeleteComponent.ActiveIn(avatarRoot);
+            // 記録は ReFrame のコンポーネントが居た場所 (例: 子の "ReFrame") に残す。
+            var markerPath = components.Length > 0
+                ? AnimationUtility.CalculateTransformPath(components[0].transform, avatarRoot.transform)
+                : "";
             var sweepMode = components.Any(c => c.SweepUnusedObjects) ? ReFrameSweepMode.Sweep : ReFrameSweepMode.LeaveToAvatarOptimizer;
             var version = PackageInfo.FindForAssembly(typeof(ReFrameDeleteComponent).Assembly)?.version ?? "?";
             var bakedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
@@ -143,7 +147,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     Object.DestroyImmediate(leftover);
 
                 clone.name = avatarRoot.name;
-                var marker = clone.AddComponent<ReFrameBakedInfo>();
+                var markerHost = string.IsNullOrEmpty(markerPath) ? null : clone.transform.Find(markerPath);
+                var marker = (markerHost != null ? markerHost.gameObject : clone).AddComponent<ReFrameBakedInfo>();
                 marker.reframeVersion = version;
                 marker.bakedAt = bakedAt;
                 marker.buildTarget = buildTarget;
@@ -280,8 +285,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
             foreach (var merge in avatarRoot.GetComponentsInChildren<nadena.dev.modular_avatar.core.ModularAvatarMergeAnimator>(true))
                 controllers.Add(merge.animator);
-            foreach (var controller in controllers.Where(c => c != null).Distinct())
-            foreach (var clip in controller.animationClips)
+            foreach (var controller in controllers.OfType<AnimatorController>().Distinct())
+            foreach (var clip in ReFrameBakedVisibilityResolver.CollectClips(controller))
             {
                 if (clip == null || !EditorUtility.IsPersistent(clip))
                     continue;

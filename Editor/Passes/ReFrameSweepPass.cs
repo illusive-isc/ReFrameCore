@@ -263,7 +263,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 {
                     if (controller == null || pathRoot == null)
                         continue;
-                    foreach (var clip in controller.animationClips.Distinct())
+                    foreach (var clip in ReFrameBakedVisibilityResolver.CollectClips(controller))
                     {
                         if (clip == null)
                             continue;
