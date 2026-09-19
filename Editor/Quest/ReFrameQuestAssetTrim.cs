@@ -421,10 +421,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>圧縮先の形式。</summary>
-        static TextureFormat MobileTextureFormat() =>
-            EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android
-                ? TextureFormat.ASTC_6x6
-                : TextureFormat.DXT5;
+        static TextureFormat MobileTextureFormat() => ReFrameQuestMaterialConverter.CompressionFormat;
 
         /// <summary>非圧縮の形式か (圧縮し直す価値があるか)。</summary>
         static bool IsUncompressed(TextureFormat format)

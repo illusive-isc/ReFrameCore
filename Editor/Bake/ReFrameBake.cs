@@ -46,7 +46,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 return;
             }
 
-            var target = IsQuestTarget ? "Quest (Android)" : "PC (Windows)";
+            var target = ForQuest(avatarRoot) ? "Quest (テクスチャは ASTC で書き出します)" : "PC (Windows)";
             var folder = PlanFolder(avatarRoot);
             var ok = EditorUtility.DisplayDialog(
                 "ReFrame 焼き込み",
@@ -91,7 +91,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var sweepMode = components.Any(c => c.SweepUnusedObjects) ? ReFrameSweepMode.Sweep : ReFrameSweepMode.LeaveToAvatarOptimizer;
             var version = PackageInfo.FindForAssembly(typeof(ReFrameDeleteComponent).Assembly)?.version ?? "?";
             var bakedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            var buildTarget = IsQuestTarget ? "Quest" : "PC";
+            var forQuest = ForQuest(avatarRoot);
+            var buildTarget = forQuest ? "Quest" : "PC";
             var sourcePrefab = SourcePrefabPath(avatarRoot);
             var componentNames = components.Select(c => c.GetType().Name).Distinct().ToArray();
             var entries = components
@@ -115,8 +116,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             string containerFolder = null;
             string bundlePath = null;
+            var previousForce = ReFrameQuestMaterialConverter.ForceQuestFormat;
             try
             {
+                // Quest 向けに焼くときは、Editor のターゲットが PC でもテクスチャを ASTC で作る。
+                // 書き出した Texture2D はインポーターを持たないので、あとでターゲットを切り替えても圧縮し直されない。
+                ReFrameQuestMaterialConverter.ForceQuestFormat = forQuest;
                 var context = new BuildContext(clone, parentFolder, false);
                 context.ActivateExtensionContextRecursive<AnimatorServicesContext>();
                 ReFrameVariantSelectPass.RunForBake(context);
@@ -174,6 +179,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
             finally
             {
+                ReFrameQuestMaterialConverter.ForceQuestFormat = previousForce;
                 if (bundlePath != null && File.Exists(bundlePath))
                     AssetDatabase.DeleteAsset(bundlePath);
                 if (containerFolder != null && AssetDatabase.IsValidFolder(containerFolder))
@@ -193,6 +199,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         static bool IsQuestTarget => EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android;
+
+        /// <summary>Quest 向けの焼き込みか (Android ターゲット、または Quest 変換が有効な設定がある)。</summary>
+        static bool ForQuest(GameObject avatarRoot) =>
+            IsQuestTarget || ReFrameDeleteComponent.ActiveIn(avatarRoot).Any(c => c.QuestConversionActive);
 
         /// <summary>Assets/ReFrameBaked/元のプレハブ名/ヒエラルキー上の名前 (既にあれば " (2)" …)。</summary>
         public static string PlanFolder(GameObject avatarRoot)
