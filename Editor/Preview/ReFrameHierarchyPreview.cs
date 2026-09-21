@@ -129,7 +129,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 )
                 {
                     context.Observe(smr, r => r.sharedMesh);
-                    blendShapeWeights = weights.ToImmutableDictionary();
+                    // [ReFrameApplyToAvatar] の行が受け持つシェイプ (胸の大きさ・ヒール等) はシーンの値が正: FX を評価した値で上書きしない
+                    var owned = SceneOwnedShapesFor(context, avatarRoot, smr);
+                    blendShapeWeights = owned.Count == 0
+                        ? weights.ToImmutableDictionary()
+                        : weights.Where(kv => !owned.Contains(kv.Key)).ToImmutableDictionary();
                 }
 
                 var materialOverrides = ImmutableDictionary<int, Material>.Empty;
@@ -222,6 +226,29 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     return boneForced;
             }
             return null;
+        }
+
+        /// <summary>この SMR について、[ReFrameApplyToAvatar] の行が受け持つ (= シーンの値が正の) シェイプ名。</summary>
+        static HashSet<string> SceneOwnedShapesFor(ComputeContext context, GameObject avatarRoot, SkinnedMeshRenderer smr)
+        {
+            var set = new HashSet<string>();
+            var root = avatarRoot.transform;
+            var segments = new List<string>();
+            for (var t = smr.transform; t != null && t != root; t = t.parent)
+                segments.Insert(0, t.name);
+            var myPath = string.Join("/", segments);
+            foreach (var component in context.GetComponentsInChildren<ReFrameDeleteComponent>(avatarRoot, true))
+            {
+                var owned = context.Observe(
+                    component,
+                    c => c.EnumerateSceneOwnedBlendShapes().ToList(),
+                    (a, b) => a.SequenceEqual(b)
+                );
+                foreach (var (path, shape) in owned)
+                    if (path == myPath)
+                        set.Add(shape);
+            }
+            return set;
         }
 
         /// <summary>アバター配下のすべての ReFrameDeleteComponent の Enabled なエントリを集め、それぞれが FX / layerType == FX の MA Merge Animator 上で解決する表示状態を集約する。</summary>

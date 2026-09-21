@@ -1439,6 +1439,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             root.Add(BuildBakeSection(component, descriptor));
             root.Add(BuildAltProbe());
             _building = false;
+            PullAvatarBlendShapesFromScene();
             RecomputeCascade();
             return root;
         }
@@ -1519,6 +1520,41 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             foreach (var refresh in _questRefreshers)
                 refresh(enabled);
             RecomputeCascade();
+        }
+
+        /// <summary>
+        /// [ReFrameApplyToAvatar] + [ReFrameBlendShape] の行の値を、シーンのメッシュ (行の最初の対象) の今の重みから取り込む。
+        /// インスペクターを開いた (= ReFrame が表示する) ときに呼ぶ。こうしないと、ユーザーが Body_b のスライダーで直接変えた値を、
+        /// 開いた瞬間の ApplyAvatarChanges が行の古い値 (例: 胸_大 100) で上書きしてしまう (2026-09-21)。
+        /// </summary>
+        void PullAvatarBlendShapesFromScene()
+        {
+            var component = target as ReFrameDeleteComponent;
+            if (component == null)
+                return;
+            var descriptor = component.GetComponentInParent<VRCAvatarDescriptor>();
+            if (descriptor == null)
+                return;
+            var root = descriptor.transform;
+            var changed = false;
+            foreach (var (fieldName, path, shape, scale) in component.EnumerateSceneOwnedBlendShapeRows())
+            {
+                var transform = root.Find(path);
+                var smr = transform != null ? transform.GetComponent<SkinnedMeshRenderer>() : null;
+                if (smr == null || smr.sharedMesh == null)
+                    continue;
+                var index = smr.sharedMesh.GetBlendShapeIndex(shape);
+                if (index < 0)
+                    continue;
+                var sceneValue = scale > 1e-6f ? smr.GetBlendShapeWeight(index) / scale : smr.GetBlendShapeWeight(index);
+                var prop = serializedObject.FindProperty(fieldName)?.FindPropertyRelative(nameof(ReFrameDeleteEntry.Value));
+                if (prop == null || Mathf.Approximately(prop.floatValue, sceneValue))
+                    continue;
+                prop.floatValue = sceneValue;
+                changed = true;
+            }
+            if (changed)
+                serializedObject.ApplyModifiedProperties();
         }
 
         /// <summary>[ReFrameApplyToAvatar] の行の値を、シーンのアバターの SkinnedMeshRenderer へそのまま書く。</summary>

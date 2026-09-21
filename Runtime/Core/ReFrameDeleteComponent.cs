@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using System.Reflection;
 using nadena.dev.modular_avatar.core;
@@ -1001,6 +1002,52 @@ namespace jp.illusive_isc.ReFrame.Core
 
         /// <summary>[ReFrameBlendShape] の Path を実際のメッシュのパスに展開する。"*" なら、アバター内で
         /// その BlendShape を持つ全 SkinnedMeshRenderer (非アクティブ含む) のアバタールート相対パス。</summary>
+        /// <summary>
+        /// [ReFrameApplyToAvatar] が付いた [ReFrameBlendShape] の行 (SceneApply のもの) が受け持つシェイプ。行の Enabled に関わらず全部。
+        /// これらは「シーンのメッシュの値が正」で、プレビューは FX を評価した値 (EP 既定の BreastSize=1 → 胸_大 100 など) をプロキシに書かず、
+        /// シーンの値をそのまま見せる。インスペクターを開いたときは行の値をシーンから取り込む (ユーザー指示 2026-09-21: 「プレビューではなく実際の体の
+        /// シェイプキーを変える。ReFrame が表示している間は ReFrame が変え、Body_b が表示されていれば Body_b で変え、ReFrame が表示するときに Body_b から値をもらう」)。
+        /// </summary>
+        public IEnumerable<(string Path, string ShapeName)> EnumerateSceneOwnedBlendShapes()
+        {
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                if (field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) == null)
+                    continue;
+                foreach (var attr in field.GetCustomAttributes<ReFrameBlendShapeAttribute>(true))
+                {
+                    if (!attr.SceneApply)
+                        continue;
+                    foreach (var path in ExpandBlendShapePaths(attr.Path, attr.ShapeName))
+                        yield return (path, attr.ShapeName);
+                }
+            }
+        }
+
+        /// <summary>[ReFrameApplyToAvatar] + [ReFrameBlendShape] の行ごとに、値を読む代表のメッシュ (最初のパス) とシェイプ名と倍率。インスペクターがシーンから値を取り込むのに使う。</summary>
+        public IEnumerable<(string FieldName, string Path, string ShapeName, float Scale)> EnumerateSceneOwnedBlendShapeRows()
+        {
+            foreach (var field in GetType().GetFields(FieldFlags))
+            {
+                if (field.FieldType != typeof(ReFrameDeleteEntry))
+                    continue;
+                if (field.GetCustomAttribute<ReFrameApplyToAvatarAttribute>(true) == null)
+                    continue;
+                foreach (var attr in field.GetCustomAttributes<ReFrameBlendShapeAttribute>(true))
+                {
+                    if (!attr.SceneApply)
+                        continue;
+                    var first = ExpandBlendShapePaths(attr.Path, attr.ShapeName).FirstOrDefault();
+                    if (first == null)
+                        continue;
+                    yield return (field.Name, first, attr.ShapeName, attr.Scale);
+                    break; // 行につき 1 つ (最初の属性の最初のメッシュ)
+                }
+            }
+        }
+
         IEnumerable<string> ExpandBlendShapePaths(string path, string shapeName)
         {
             if (path != ReFrameBlendShapeAttribute.AnyMesh)
