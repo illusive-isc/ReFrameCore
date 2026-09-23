@@ -26,6 +26,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         internal static void RefreshAll()
         {
             var desiredHidden = new HashSet<GameObject>();
+            var descriptors = new List<VRCAvatarDescriptor>();
 
             for (var i = 0; i < SceneManager.sceneCount; i++)
             {
@@ -35,10 +36,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
                 foreach (var root in scene.GetRootGameObjects())
                 foreach (var descriptor in root.GetComponentsInChildren<VRCAvatarDescriptor>(true))
+                {
+                    descriptors.Add(descriptor);
                     CollectDesiredHidden(descriptor, desiredHidden);
+                }
             }
 
-            KeepTopRowsVisible(desiredHidden);
+            foreach (var descriptor in descriptors)
+                CollapseEmptyGroups(desiredHidden, descriptor);
             KeepReFrameComponentsVisible(desiredHidden);
 
             var previouslyHidden = new HashSet<GameObject>(s_hiddenByUs);
@@ -91,37 +96,53 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 EditorApplication.RepaintHierarchyWindow();
         }
 
-        /// <summary>消える塊の一番上の行は残し、その配下だけを隠す。一番上まで隠すと Hierarchy から見つけられず取り外せなくなるため。</summary>
-        static void KeepTopRowsVisible(HashSet<GameObject> desiredHidden)
+        /// <summary>
+        /// 消える塊の入れ物の行も、中身が全部消えるときだけ一緒に消す。
+        /// 消える対象 (解決結果) はそのまま隠し、そこから上へ「配下の Renderer が 1 つ以上あって、その全部が隠れている」節を
+        /// 末端から順に足していく。Renderer を持たない節 (Armature・空の入れ物) は判定に入れない ── 入れると
+        /// 「配下に Renderer が無い = 全部消えた」と見なされて必ず隠れてしまうため。
+        /// 以前は「親の子が全部 desiredHidden に入っていなければ、その行は残して配下だけ隠す」としていたが、
+        /// 衣装と Armature が同じ親に並ぶ構成 (kaguya_cloth) では Armature が絶対に隠れないので条件が永久に成立せず、
+        /// 葉のレンダラー (sailor 等) は代わりに隠す子も無いため、結局 1 つも隠れなかった (2026-09-24 実測)。
+        /// </summary>
+        static void CollapseEmptyGroups(HashSet<GameObject> desiredHidden, VRCAvatarDescriptor descriptor)
         {
-            if (desiredHidden.Count == 0)
-                return;
-            var tops = new List<GameObject>();
-            foreach (var go in desiredHidden)
+            if (desiredHidden.Count == 0 || descriptor == null)
+                return;   // 消す対象が無いときは何もしない
+
+            // 節ごとに「配下 (自分を含む) の Renderer の数」と「そのうち隠れている数」を数える
+            var total = new Dictionary<Transform, int>();
+            var hidden = new Dictionary<Transform, int>();
+            void Count(Transform t)
             {
-                if (go == null)
-                    continue;
-                var parent = go.transform.parent;
-                if (parent == null || !desiredHidden.Contains(parent.gameObject))
-                    tops.Add(go);
+                var n = 0;
+                var h = 0;
+                if (t.GetComponent<Renderer>() != null)
+                {
+                    n = 1;
+                    if (desiredHidden.Contains(t.gameObject))
+                        h = 1;
+                }
+                for (var i = 0; i < t.childCount; i++)
+                {
+                    var c = t.GetChild(i);
+                    Count(c);
+                    n += total[c];
+                    h += hidden[c];
+                }
+                total[t] = n;
+                hidden[t] = h;
             }
-            // 親の子が全部消えるなら親の行を残し、その配下 (この塊を含む) を隠したままにする。
-            var keep = new List<GameObject>();
-            foreach (var top in tops)
+            Count(descriptor.transform);
+
+            foreach (var kv in total)
             {
-                var parent = top.transform.parent;
-                var wholeGroup = parent != null && parent.childCount > 1;
-                for (var i = 0; wholeGroup && i < parent.childCount; i++)
-                    wholeGroup = desiredHidden.Contains(parent.GetChild(i).gameObject);
-                if (!wholeGroup)
-                    keep.Add(top);
-            }
-            foreach (var top in keep)
-            {
-                desiredHidden.Remove(top);
-                foreach (var child in top.GetComponentsInChildren<Transform>(true))
-                    if (child.gameObject != top)
-                        desiredHidden.Add(child.gameObject);
+                var t = kv.Key;
+                if (t == descriptor.transform || kv.Value == 0)
+                    continue;                       // アバタールートと、Renderer を持たない節は対象外
+                if (hidden[t] != kv.Value)
+                    continue;                       // 1 つでも残る Renderer があれば、この節は残す
+                desiredHidden.Add(t.gameObject);
             }
         }
 
