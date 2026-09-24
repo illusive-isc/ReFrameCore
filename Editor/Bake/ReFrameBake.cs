@@ -16,6 +16,16 @@ using PackageInfo = UnityEditor.PackageManager.PackageInfo;
 
 namespace jp.illusive_isc.ReFrame.Core.Editor
 {
+    /// <summary>焼いた結果の残し方。</summary>
+    public enum ReFrameBakeOutput
+    {
+        /// <summary>置き場に新しいプレハブとして保存し、ヒエラルキーのアバターをそのインスタンスにする。</summary>
+        Prefab,
+
+        /// <summary>プレハブは作らず、ヒエラルキー上のアバターだけを焼いた状態にする。</summary>
+        Hierarchy,
+    }
+
     /// <summary>ReFrame の削除をシーン上のアバターへ焼き込み、生成物を Assets/ReFrameBaked 以下へ実体として置き、ReFrame のコンポーネントを外す。</summary>
     public static class ReFrameBake
     {
@@ -30,8 +40,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             typeof(StateMachineBehaviour),
         };
 
-        /// <summary>Inspector から呼ぶ入口。確認ダイアログを出してから焼く。</summary>
-        public static void BakeWithDialog(GameObject avatarRoot)
+        /// <summary>Inspector から呼ぶ入口。焼き込みウィンドウを開く。</summary>
+        public static void OpenWindow(GameObject avatarRoot)
         {
             if (avatarRoot == null)
                 return;
@@ -45,49 +55,43 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 EditorUtility.DisplayDialog("ReFrame 焼き込み", "いまのビルドターゲットで有効な ReFrame のコンポーネントがありません。", "OK");
                 return;
             }
+            ReFrameBakeWindow.Open(avatarRoot);
+        }
 
-            var target = ForQuest(avatarRoot)
-                ? "Quest 用 (テクスチャは ASTC で書き出します)"
-                : "PC 用";
-            var folder = PlanFolder(avatarRoot);
-            var active = ReFrameDeleteComponent.ActiveIn(avatarRoot);
-            var inactive = avatarRoot
-                .GetComponentsInChildren<ReFrameDeleteComponent>(true)
-                .Where(c => c != null && !active.Contains(c))
-                .ToArray();
-            var usedLine = "・使う設定: " + string.Join(", ", active.Select(Describe).Distinct());
-            if (inactive.Length > 0)
-                usedLine += " — " + string.Join(", ", inactive.Select(Describe).Distinct()) + " は今のターゲットでは使われないので外れます";
-            var ok = EditorUtility.DisplayDialog(
-                "ReFrame 焼き込み",
-                "ヒエラルキー上のこのアバターを、ReFrame の設定を適用した状態に書き換えます。\n\n"
-                    + "・" + target + " として焼きます (プレビューで表示している側)\n"
-                    + usedLine + "\n"
-                    + "・FX / メニュー / パラメーター / クリップの複製を " + folder + " に置き、アバターはそこを参照するように張り替えます\n"
-                    + "・元のプレハブとの繋がりは切れ、同じ場所に新しいプレハブとして保存します\n"
-                    + "・ReFrame のコンポーネントは全部外れ、この後は設定を変えられません (元のプレハブは触らず、焼く前の姿も同じ場所に「(焼き込み前).prefab」として控えます)\n\n"
-                    + "この操作は元に戻せません。続けますか?",
-                "焼き込む",
-                "やめる"
-            );
-            if (!ok)
-                return;
-
+        /// <summary>ウィンドウの「焼き込む」から呼ぶ。失敗したらダイアログで知らせる。</summary>
+        internal static bool BakeFromWindow(GameObject avatarRoot, ReFrameBakeOutput output, bool keepBackup)
+        {
             try
             {
-                var result = Bake(avatarRoot);
+                var result = Bake(avatarRoot, output, keepBackup);
                 EditorGUIUtility.PingObject(result);
                 Selection.activeGameObject = result;
+                return true;
             }
             catch (Exception e)
             {
                 Debug.LogException(e);
                 EditorUtility.DisplayDialog("ReFrame 焼き込み", "焼き込みに失敗しました。アバターは変更していません。\n\n" + e.Message, "OK");
+                return false;
             }
         }
 
+        /// <summary>ウィンドウに出す「使う設定」の行。</summary>
+        internal static string DescribeUsage(GameObject avatarRoot)
+        {
+            var active = ReFrameDeleteComponent.ActiveIn(avatarRoot);
+            var inactive = avatarRoot
+                .GetComponentsInChildren<ReFrameDeleteComponent>(true)
+                .Where(c => c != null && !active.Contains(c))
+                .ToArray();
+            var line = string.Join(", ", active.Select(Describe).Distinct());
+            if (inactive.Length > 0)
+                line += "\n" + string.Join(", ", inactive.Select(Describe).Distinct()) + " は今のターゲットでは使われないので外れます";
+            return line;
+        }
+
         /// <summary>複製に焼いて成功したら元と入れ替える。戻り値はヒエラルキーに残った焼き済みのアバター。</summary>
-        public static GameObject Bake(GameObject avatarRoot)
+        public static GameObject Bake(GameObject avatarRoot, ReFrameBakeOutput output = ReFrameBakeOutput.Prefab, bool keepBackup = true)
         {
             if (avatarRoot == null)
                 throw new ArgumentNullException(nameof(avatarRoot));
@@ -180,11 +184,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 marker.sweepMode = sweepMode;
                 ReFrameSweepPass.SaveSnapshot(context, marker);
 
-                PrefabUtility.SaveAsPrefabAssetAndConnect(
-                    clone,
-                    folder + "/" + folderName + ".prefab",
-                    InteractionMode.AutomatedAction
-                );
+                if (output == ReFrameBakeOutput.Prefab)
+                    PrefabUtility.SaveAsPrefabAssetAndConnect(
+                        clone,
+                        folder + "/" + folderName + ".prefab",
+                        InteractionMode.AutomatedAction
+                    );
             }
             catch
             {
@@ -204,7 +209,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
 
             // 焼く前の姿 (ReFrame の設定込み) を同じ置き場に控えておく。設定がシーンにしか無いアバターを戻せるように。
-            PrefabUtility.SaveAsPrefabAsset(avatarRoot, folder + "/" + folderName + " (焼き込み前).prefab");
+            if (keepBackup)
+                PrefabUtility.SaveAsPrefabAsset(avatarRoot, folder + "/" + folderName + " (焼き込み前).prefab");
 
             var siblingIndex = avatarRoot.transform.GetSiblingIndex();
             Undo.RegisterCreatedObjectUndo(clone, "ReFrame: 焼き込み");

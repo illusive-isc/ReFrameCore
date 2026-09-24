@@ -1947,7 +1947,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var button = new Button(() =>
             {
                 if (descriptor != null)
-                    ReFrameBake.BakeWithDialog(descriptor.gameObject);
+                    ReFrameBake.OpenWindow(descriptor.gameObject);
             });
             string Label() =>
                 descriptor == null
@@ -1963,7 +1963,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 new HelpBox(
                     "プレビューで表示している側 (PC 用 / Quest 簡易対応版) の設定を、ビルド時ではなく今ここで適用し、FX / メニュー / パラメーターの複製を "
                         + ReFrameBake.RootFolder
-                        + " 以下に置いてアバターを張り替えます。ReFrame のコンポーネントは外れて設定は変えられなくなります (元のプレハブは触りません)。",
+                        + " 以下に置いてアバターを張り替えます。結果は新しいプレハブとして保存するか、ヒエラルキー上のアバターへの反映だけにするかをウィンドウで選べます。ReFrame のコンポーネントは外れて設定は変えられなくなります (元のプレハブは触りません)。",
                     HelpBoxMessageType.None
                 )
             );
