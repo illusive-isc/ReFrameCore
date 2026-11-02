@@ -1168,15 +1168,45 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         static void DetachRootAnimatorController(BuildContext context)
         {
             var animator = context.AvatarRootObject.GetComponent<Animator>();
-            if (animator == null || animator.runtimeAnimatorController == null)
-                return;
-            var name = animator.runtimeAnimatorController.name;
-            context.Extension<AnimatorServicesContext>().ControllerContext.ForgetController(animator);
-            animator.runtimeAnimatorController = null;
-            Debug.LogWarning(
-                $"[ReFrameCore] ReFrameDeletePass: ルート Animator の Controller '{name}' はビルドでは使われないので外しました "
-                    + "(NDMF の commit で既定ステートが評価され、焼き付けた m_IsActive が戻るのを防ぐため)。"
-            );
+            if (animator != null && animator.runtimeAnimatorController != null)
+            {
+                var name = animator.runtimeAnimatorController.name;
+                context.Extension<AnimatorServicesContext>().ControllerContext.ForgetController(animator);
+                animator.runtimeAnimatorController = null;
+                Debug.LogWarning(
+                    $"[ReFrameCore] ReFrameDeletePass: ルート Animator の Controller '{name}' はビルドでは使われないので外しました "
+                        + "(NDMF の commit で既定ステートが評価され、焼き付けた m_IsActive が戻るのを防ぐため)。"
+                );
+            }
+            DetachMergeAnimatorPreviewControllers(context);
+        }
+
+        /// <summary>
+        /// MA Merge Animator と同じ GameObject に置かれたプレビュー用の Animator (deleteAttachedAnimator で MA が後で消すもの) も、
+        /// ルートと同じく NDMF に仮想化されて commit で書き戻される。Relative の Merge Animator だとその Animator のパスが
+        /// 衣装のオブジェクトに当たるので、既定ステートの評価で焼き付けた m_IsActive が戻る (例: ちゆの Chiyu_Cloth)。同じ理由で外す。
+        /// </summary>
+        static void DetachMergeAnimatorPreviewControllers(BuildContext context)
+        {
+            var controllerContext = context.Extension<AnimatorServicesContext>().ControllerContext;
+            var detached = new List<string>();
+            foreach (var merge in context.AvatarRootObject.GetComponentsInChildren<ModularAvatarMergeAnimator>(true))
+            {
+                if (!merge.deleteAttachedAnimator || merge.gameObject == context.AvatarRootObject)
+                    continue;
+                var animator = merge.GetComponent<Animator>();
+                if (animator == null || animator.runtimeAnimatorController == null)
+                    continue;
+                controllerContext.ForgetController(animator);
+                animator.runtimeAnimatorController = null;
+                detached.Add(merge.name);
+            }
+            if (detached.Count > 0)
+                Debug.LogWarning(
+                    "[ReFrameCore] ReFrameDeletePass: MA Merge Animator のプレビュー用 Animator の Controller を外しました (MA がビルドで消すもの、"
+                        + "焼き付けた m_IsActive が戻るのを防ぐため): "
+                        + string.Join(", ", detached)
+                );
         }
 
         /// <summary>
