@@ -2068,6 +2068,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             EditorJsonUtility.FromJsonOverwrite(EditorJsonUtility.ToJson(source), variant);
             variant.deleteQuestUnsupportedComponents = true;
             variant.questScope = ReFrameQuestScope.AndroidOnly;
+            ApplyQuestKeepPhysBones(variant);
             EditorUtility.SetDirty(variant);
 
             Undo.RecordObject(source, "ReFrame: Quest 簡易対応版を作成");
@@ -2078,6 +2079,55 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 "[ReFrameCore] Quest 簡易対応版 " + type.Name + " を作成し、" + source.GetType().Name + " の設定を写しました。"
             );
             return variant;
+        }
+
+        /// <summary>
+        /// [ReFrameQuestKeepPhysBones] があれば、挙げた名前以外の PhysBone と、残る PhysBone が使わないコライダーを消す側へ足す
+        /// (PC 用で既に選んでいたものはそのまま)。
+        /// </summary>
+        static void ApplyQuestKeepPhysBones(ReFrameDeleteComponent variant)
+        {
+            var keep = (ReFrameQuestKeepPhysBonesAttribute)
+                System.Attribute.GetCustomAttribute(variant.GetType(), typeof(ReFrameQuestKeepPhysBonesAttribute), true);
+            if (keep == null)
+                return;
+            var descriptor = variant.GetComponentInParent<VRCAvatarDescriptor>(true);
+            if (descriptor == null)
+                return;
+            var root = descriptor.transform;
+            var names = new HashSet<string>(keep.Names);
+            var usedColliders = new HashSet<VRC.Dynamics.VRCPhysBoneColliderBase>();
+            int addedBones = 0, addedColliders = 0;
+            foreach (var bone in root.GetComponentsInChildren<VRC.SDK3.Dynamics.PhysBone.Components.VRCPhysBone>(true))
+            {
+                var key = ReFramePhysBoneCatalog.KeyOf(root, bone);
+                if (names.Contains(bone.gameObject.name) && !variant.deletedPhysBones.Contains(key))
+                {
+                    foreach (var collider in bone.colliders)
+                        if (collider != null)
+                            usedColliders.Add(collider);
+                    continue;
+                }
+                if (!variant.deletedPhysBones.Contains(key))
+                {
+                    variant.deletedPhysBones.Add(key);
+                    addedBones++;
+                }
+            }
+            foreach (var collider in root.GetComponentsInChildren<VRC.SDK3.Dynamics.PhysBone.Components.VRCPhysBoneCollider>(true))
+            {
+                if (usedColliders.Contains(collider))
+                    continue;
+                var key = ReFramePhysBoneCatalog.KeyOf(root, collider);
+                if (!variant.deletedPhysBoneColliders.Contains(key))
+                {
+                    variant.deletedPhysBoneColliders.Add(key);
+                    addedColliders++;
+                }
+            }
+            Debug.Log(
+                $"[ReFrameCore] Quest のおすすめの揺れ物 ({string.Join(", ", keep.Names)}) を残し、PhysBone {addedBones} 個とコライダー {addedColliders} 個を消す側に入れました。"
+            );
         }
 
         /// <summary>両方あるときの「プレビュー: 自動 / PC 用 / Quest 簡易対応版」の切り替え。</summary>
