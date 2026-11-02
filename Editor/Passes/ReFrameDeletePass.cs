@@ -110,7 +110,17 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
             var deletedNames = new HashSet<string>();
 
-            if (allDeleteTargets.Count == 0)
+            // パラメーターを消さずに層・ステートだけを消す行 (表情プリセットなど) だけが有効なときも、アニメーターの処理へ進む。
+            var hasLayerOrStateOnlyWork = components.Any(c =>
+                c != null
+                && (
+                    c.EnumerateDeleteLayerTargets().Any()
+                    || c.EnumerateFxOnlyDeleteLayerTargets().Any()
+                    || c.EnumerateDeleteStateTargets().Any()
+                )
+            );
+
+            if (allDeleteTargets.Count == 0 && !hasLayerOrStateOnlyWork)
             {
                 Debug.LogWarning(
                     "[ReFrameCore] ReFrameDeletePass: no entries had Enabled = true; nothing to delete."
@@ -220,6 +230,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     Debug.LogWarning(
                         "[ReFrameCore] ReFrameDeletePass: layer targets = " + string.Join(", ", layerNames)
                     );
+                var fxLayerNames = components
+                    .SelectMany(c => c.EnumerateFxOnlyDeleteLayerTargets())
+                    .Distinct()
+                    .ToArray();
+                if (fxLayerNames.Length > 0)
+                    Debug.LogWarning(
+                        "[ReFrameCore] ReFrameDeletePass: FX layer targets = " + string.Join(", ", fxLayerNames)
+                    );
 
                 var stateNames = components
                     .SelectMany(c => c.EnumerateDeleteStateTargets())
@@ -250,6 +268,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     targets.Length > 0
                     || relatedBlendTreeTargets.Length > 0
                     || layerNames.Length > 0
+                    || fxLayerNames.Length > 0
                     || stateNames.Length > 0
                     || redirectTargets.Length > 0
                     || treeOverrides.Count > 0
@@ -260,6 +279,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         targets,
                         relatedBlendTreeTargets,
                         layerNames,
+                        fxLayerNames,
                         stateNames,
                         redirectTargets,
                         treeOverrides
@@ -1438,6 +1458,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             ReFrameAnimatorUtil.ParameterTarget[] targets,
             ReFrameAnimatorUtil.RelatedBlendTreeTarget[] relatedBlendTreeTargets,
             string[] layerNames,
+            string[] fxLayerNames,
             (string LayerName, string StateName)[] stateNames,
             (string LayerName, string FromState, string ToState)[] redirectTargets,
             Dictionary<string, float> treeOverrides
@@ -1576,6 +1597,36 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         + $" -> removed {removedLayers} layer(s)"
                 );
             }
+
+            if (fxLayerNames.Length > 0)
+            {
+                var fxControllers = CollectFxControllers(context);
+                var removedLayers = 0;
+                foreach (var (controller, _) in distinctControllers)
+                    if (fxControllers.Contains(controller))
+                        removedLayers += ReFrameAnimatorUtil.RemoveNamedLayers(controller, fxLayerNames);
+                Debug.LogWarning(
+                    $"[ReFrameCore] ReFrameDeletePass: named FX layer removal ({string.Join(", ", fxLayerNames)})"
+                        + $" -> removed {removedLayers} layer(s)"
+                );
+            }
+        }
+
+        /// <summary>[ReFrameDeleteLayer(FxOnly = true)] の対象: アバター本体の FX と、layerType == FX の MA Merge Animator のコントローラー。</summary>
+        static HashSet<VirtualAnimatorController> CollectFxControllers(BuildContext context)
+        {
+            var vcc = context.Extension<AnimatorServicesContext>().ControllerContext;
+            var set = new HashSet<VirtualAnimatorController>();
+            if (vcc.Controllers.TryGetValue(VRCAvatarDescriptor.AnimLayerType.FX, out var fx) && fx != null)
+                set.Add(fx);
+            foreach (var merge in context.AvatarRootObject.GetComponentsInChildren<ModularAvatarMergeAnimator>(true))
+            {
+                if (!merge.enabled || merge.layerType != VRCAvatarDescriptor.AnimLayerType.FX || merge.animator == null)
+                    continue;
+                if (vcc.Controllers.TryGetValue(merge, out var controller) && controller != null)
+                    set.Add(controller);
+            }
+            return set;
         }
 
         /// <summary>[ReFrameMenuFlatten]: サブメニューの中身を親へ繰り上げ、サブメニュー自体を外す。戻り値は外したサブメニューの数。</summary>

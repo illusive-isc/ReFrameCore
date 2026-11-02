@@ -1261,8 +1261,13 @@ namespace jp.illusive_isc.ReFrame.Core
             }
         }
 
-        /// <summary>Enabled が true のフィールドについて、[ReFrameDeleteLayer] で宣言された (丸ごと取り除きたい) AnimatorController レイヤーの名前を列挙する。</summary>
-        public IEnumerable<string> EnumerateDeleteLayerTargets()
+        /// <summary>Enabled が true のフィールドについて、[ReFrameDeleteLayer] で宣言された (丸ごと取り除きたい) AnimatorController レイヤーの名前を列挙する (FxOnly のものは除く)。</summary>
+        public IEnumerable<string> EnumerateDeleteLayerTargets() => EnumerateDeleteLayerTargets(false);
+
+        /// <summary>[ReFrameDeleteLayer(FxOnly = true)] の層の名前を列挙する。</summary>
+        public IEnumerable<string> EnumerateFxOnlyDeleteLayerTargets() => EnumerateDeleteLayerTargets(true);
+
+        IEnumerable<string> EnumerateDeleteLayerTargets(bool fxOnly)
         {
             var deletingRepresentativeParams = CollectDeletingRepresentativeParameterNames();
 
@@ -1277,6 +1282,8 @@ namespace jp.illusive_isc.ReFrame.Core
 
                 foreach (var attr in field.GetCustomAttributes<ReFrameDeleteLayerAttribute>(true))
                 {
+                    if (attr.FxOnly != fxOnly)
+                        continue;
                     if (
                         attr.OnlyWhenValue.HasValue
                         && !Mathf.Approximately(attr.OnlyWhenValue.Value, ResolveEffectiveValue(field, entry))
