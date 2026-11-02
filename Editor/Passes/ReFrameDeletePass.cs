@@ -1678,6 +1678,9 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                         );
                         continue;
                     }
+                    // 先に外してから、空いた位置へ Keep の項目を入れる (親が上限ちょうどでも移せて、並びも元の位置になる)。
+                    var insertAt = parent.controls.IndexOf(target);
+                    parent.controls.Remove(target);
                     foreach (var keepPath in removal.Keep)
                     {
                         if (string.IsNullOrEmpty(keepPath) || target.subMenu == null)
@@ -1714,7 +1717,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             );
                             continue;
                         }
-                        parent.controls.Add(
+                        parent.controls.Insert(
+                            System.Math.Min(insertAt++, parent.controls.Count),
                             new VRCExpressionsMenu.Control
                             {
                                 name = keep.name,
@@ -1729,7 +1733,6 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             }
                         );
                     }
-                    parent.controls.Remove(target);
                     removed++;
                     Debug.LogWarning(
                         $"[ReFrameCore] ReFrameDeletePass: [ReFrameMenuRemove] '{removal.Path}' をメニューから外しました"
