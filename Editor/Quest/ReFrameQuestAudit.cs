@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEditor;
 using UnityEngine;
 using VRC.SDKBase.Validation.Performance;
 using VRC.SDKBase.Validation.Performance.Stats;
@@ -23,13 +24,88 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             public readonly string Value;
             public readonly string Limit;
 
-            public Finding(bool blocking, string label, string value, string limit)
+            /// <summary>アバター本体だけなら収まる (= 追加した服・小物の分で止まっている) とき、本体だけの値。ReFrame で減らせない項目だけ入れる。</summary>
+            public readonly string OfficialOnlyValue;
+
+            /// <summary>その超過に関わっている、追加した服・小物の名前。</summary>
+            public readonly string[] AddedObjects;
+
+            public bool CausedByAdded => OfficialOnlyValue != null;
+
+            public Finding(
+                bool blocking,
+                string label,
+                string value,
+                string limit,
+                string officialOnlyValue = null,
+                string[] addedObjects = null
+            )
             {
                 Blocking = blocking;
                 Label = label;
                 Value = value;
                 Limit = limit;
+                OfficialOnlyValue = officialOnlyValue;
+                AddedObjects = addedObjects ?? System.Array.Empty<string>();
             }
+        }
+
+        /// <summary>
+        /// アバター本体 (配布元のプレハブ) に無いコンポーネント = 追加した服・小物・ギミック。
+        /// 本体は、アバターのルートの元をたどった一番奥の (FBX ではない) プレハブとみなし、元をたどってそこへ行き着くものを本体とする
+        /// (利用者が作ったバリアントで足したもの・シーンで足したものは「追加」)。ルートがプレハブでなければ見分けられないので null。
+        /// </summary>
+        internal static HashSet<Component> CollectAddedComponents(Transform avatarRoot)
+        {
+            if (avatarRoot == null)
+                return null;
+            var rootChain = SourceAssets(avatarRoot.gameObject);
+            var officialIndex = rootChain.FindLastIndex(path => !(AssetImporter.GetAtPath(path) is ModelImporter));
+            if (officialIndex < 0)
+                return null;
+            var official = new HashSet<string>(rootChain.Skip(officialIndex));
+
+            var added = new HashSet<Component>();
+            foreach (var component in avatarRoot.GetComponentsInChildren<Component>(true))
+                if (component != null && !SourceAssets(component).Any(official.Contains))
+                    added.Add(component);
+            return added;
+        }
+
+        /// <summary>プレハブの元を 1 段ずつたどったときのアセットのパス (近い順)。</summary>
+        static List<string> SourceAssets(UnityEngine.Object o)
+        {
+            var result = new List<string>();
+            var current = o;
+            for (var i = 0; i < 16; i++)
+            {
+                var source = PrefabUtility.GetCorrespondingObjectFromSource(current);
+                if (source == null)
+                    break;
+                result.Add(AssetDatabase.GetAssetPath(source));
+                current = source;
+            }
+            return result;
+        }
+
+        /// <summary>追加した部品のうち、アバターのルート直下から見て一番上の GameObject の名前 (表示用)。</summary>
+        static string[] AddedObjectNames(Transform avatarRoot, IEnumerable<Component> components, HashSet<Component> added)
+        {
+            var names = new List<string>();
+            foreach (var component in components)
+            {
+                if (component == null || !added.Contains(component))
+                    continue;
+                // GameObject ごと追加したもの (Transform も追加) なら、追加した範囲の一番上まで上がる。
+                // 本体の GameObject にコンポーネントだけ足したものは、その GameObject の名前。
+                var top = component.transform;
+                if (added.Contains(top))
+                    for (var cursor = top.parent; cursor != null && cursor != avatarRoot && added.Contains(cursor); cursor = cursor.parent)
+                        top = cursor;
+                if (!names.Contains(top.name))
+                    names.Add(top.name);
+            }
+            return names.ToArray();
         }
 
         /// <summary>Quest でこれらが VeryPoor になると Error になるカテゴリ (SDKPerformanceDisplay.cs の isMobilePlatform ? Error : Warning と一致)。</summary>
@@ -116,8 +192,12 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             }
             var poor = AvatarPerformanceStats.GetStatLevelForRating(PerformanceRating.Poor, true);
 
+            // 追加した服・小物の分で止まっているかを見分けるため、本体のものと分けて数える (見分けられなければ null)。
+            var root = builtAvatar.transform;
+            var added = CollectAddedComponents(root);
+
             var allowed = AndroidAllowedComponents();
-            var illegalComponents = new Dictionary<string, int>();
+            var illegalComponents = new Dictionary<string, List<Component>>();
             foreach (var component in builtAvatar.GetComponentsInChildren<Component>(true))
             {
                 if (component == null || IsEditorOnly(component))
@@ -128,16 +208,28 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var name = component.GetType().FullName;
                 if (name == null || allowed.Contains(name))
                     continue;
-                illegalComponents.TryGetValue(name, out var count);
-                illegalComponents[name] = count + 1;
+                if (!illegalComponents.TryGetValue(name, out var list))
+                    illegalComponents[name] = list = new List<Component>();
+                list.Add(component);
             }
-            foreach (var pair in illegalComponents.OrderByDescending(p => p.Value))
+            foreach (var pair in illegalComponents.OrderByDescending(p => p.Value.Count))
+            {
+                var fromAdded = added != null && pair.Value.All(added.Contains);
                 findings.Add(
-                    new Finding(true, "使えないコンポーネント: " + Short(pair.Key), pair.Value + " 個", "0")
+                    new Finding(
+                        true,
+                        "使えないコンポーネント: " + Short(pair.Key),
+                        pair.Value.Count + " 個",
+                        "0",
+                        fromAdded ? "0 個" : null,
+                        fromAdded ? AddedObjectNames(root, pair.Value, added) : null
+                    )
                 );
+            }
 
-            var doomed = ReFrameDeleteComponent.CollectDeclaredDeletions(builtAvatar.transform);
-            var dynamics = CountDynamics(builtAvatar.transform, doomed);
+            var doomed = ReFrameDeleteComponent.CollectDeclaredDeletions(root);
+            var dynamics = CountDynamics(root, doomed);
+            var officialDynamics = added == null ? null : CountDynamics(root, doomed, added);
 
             foreach (var entry in BlockingCategories)
             {
@@ -156,7 +248,19 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 var limitText = ValueOf(poor, entry.Category);
                 if (!int.TryParse(limitText, out var limit) || value <= limit)
                     continue;
-                findings.Add(new Finding(true, entry.Label, value.ToString(), limitText));
+
+                // 揺れ物 (PhysBone とコライダー) は ReFrame の一覧で追加した服の分も消せるので、ここでは「本体だけなら収まる」を出さない。
+                string officialOnly = null;
+                string[] addedNames = null;
+                if (officialDynamics != null
+                    && !IsPhysBoneCategory(entry.Category)
+                    && officialDynamics.TryGetValue(entry.Category, out var officialValue)
+                    && officialValue <= limit)
+                {
+                    officialOnly = officialValue.ToString();
+                    addedNames = AddedObjectNames(root, ComponentsOf(root, entry.Category, doomed), added);
+                }
+                findings.Add(new Finding(true, entry.Label, value.ToString(), limitText, officialOnly, addedNames));
             }
 
             var illegalShaders = new Dictionary<string, int>();
@@ -224,9 +328,43 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             );
         }
 
+        static bool IsPhysBoneCategory(AvatarPerformanceCategory category) =>
+            category == AvatarPerformanceCategory.PhysBoneComponentCount
+            || category == AvatarPerformanceCategory.PhysBoneTransformCount
+            || category == AvatarPerformanceCategory.PhysBoneColliderCount
+            || category == AvatarPerformanceCategory.PhysBoneCollisionCheckCount;
+
+        /// <summary>そのカテゴリに数えられる種類のコンポーネント (削除宣言されたものを除く)。追加した部品の名前を出すため。</summary>
+        static IEnumerable<Component> ComponentsOf(Transform avatarRoot, AvatarPerformanceCategory category, HashSet<Transform> doomed)
+        {
+            foreach (var component in avatarRoot.GetComponentsInChildren<Component>(true))
+            {
+                if (component == null || doomed.Contains(component.transform))
+                    continue;
+                switch (category)
+                {
+                    case AvatarPerformanceCategory.ContactCount:
+                        if (component is VRC.Dynamics.ContactBase)
+                            yield return component;
+                        break;
+                    case AvatarPerformanceCategory.ConstraintsCount:
+                    case AvatarPerformanceCategory.ConstraintDepth:
+                        if (component is VRC.Dynamics.VRCConstraintBase || component is UnityEngine.Animations.IConstraint)
+                            yield return component;
+                        break;
+                    case AvatarPerformanceCategory.RaycastCount:
+                        if (component is VRC.SDK3.Avatars.Components.VRCRaycast)
+                            yield return component;
+                        break;
+                }
+            }
+        }
+
+        /// <summary>excluded に入っているコンポーネントは無いものとして数える (追加した部品を抜いた本体だけの値)。</summary>
         static Dictionary<AvatarPerformanceCategory, int> CountDynamics(
             Transform avatarRoot,
-            HashSet<Transform> doomed
+            HashSet<Transform> doomed,
+            HashSet<Component> excluded = null
         )
         {
             var deletedPhysBones = new HashSet<string>();
@@ -241,7 +379,10 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     deletedColliders.UnionWith(c.deletedPhysBoneColliders);
             }
 
-            bool Gone(Component component) => component == null || doomed.Contains(component.transform);
+            bool Gone(Component component) =>
+                component == null
+                || doomed.Contains(component.transform)
+                || (excluded != null && excluded.Contains(component));
 
             var usedBones = new HashSet<Transform>();
             foreach (var smr in avatarRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true))

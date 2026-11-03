@@ -830,6 +830,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                             )
                         );
 
+                    // 本体だけなら収まるのに、追加した服・小物の分で止まっている項目 (ReFrame では減らせない種類だけ)。
+                    var byAdded = blocking.Where(f => f.CausedByAdded).ToList();
+                    if (byAdded.Count > 0)
+                        questAudit.Add(BuildAddedOutfitNotice(byAdded));
+
                     if (overLimit.Count > 0)
                         questAudit.Add(
                             BuildQuestAuditGroup(
@@ -3124,6 +3129,49 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
         }
 
         /// <summary>Quest の判定を 1 グループぶん描く。</summary>
+        /// <summary>追加した服・小物の分で Quest にアップロードできないときの案内。ReFrame が減らせるのはアバター本体の部品だけ。</summary>
+        static VisualElement BuildAddedOutfitNotice(List<ReFrameQuestAudit.Finding> findings)
+        {
+            var names = findings.SelectMany(f => f.AddedObjects).Distinct().ToList();
+            var box = new HelpBox(
+                "追加した服・小物のため、Quest 対応できません" + (char)10
+                    + "次の項目は、アバター本体だけなら上限に収まりますが、追加した服・小物"
+                    + (names.Count > 0 ? " (" + string.Join(" / ", names) + ")" : "")
+                    + " の分で超えています。ReFrame で減らせるのはアバター本体の部品だけなので、"
+                    + "Quest 対応は別のツールで行ってください (その服・小物を外せば、ReFrame だけで対応できます)。",
+                HelpBoxMessageType.Error
+            );
+            box.style.marginBottom = 4;
+
+            var list = new VisualElement();
+            list.style.marginLeft = 4;
+            list.style.marginTop = 2;
+            foreach (var finding in findings)
+            {
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.justifyContent = Justify.SpaceBetween;
+
+                var label = new Label(finding.Label);
+                label.style.overflow = Overflow.Hidden;
+                label.style.flexShrink = 1;
+                row.Add(label);
+
+                var amount = new Label(
+                    finding.Value + " (本体だけなら " + finding.OfficialOnlyValue + ")"
+                        + (finding.Limit == "0" ? "" : " / " + finding.Limit)
+                );
+                amount.style.unityFontStyleAndWeight = FontStyle.Bold;
+                amount.style.flexShrink = 0;
+                amount.style.marginLeft = 8;
+                row.Add(amount);
+
+                list.Add(row);
+            }
+            box.Add(list);
+            return box;
+        }
+
         static VisualElement BuildQuestAuditGroup(
             string title,
             string description,
