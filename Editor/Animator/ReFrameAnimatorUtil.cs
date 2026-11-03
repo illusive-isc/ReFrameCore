@@ -298,23 +298,28 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     state.TimeParameter = null;
                     changed = true;
                 }
+                // 速さ・周期のずれ・反転のパラメーターは、固定した値をステートの値へ移してから外す
+                // (外すだけだと、反転を ON で固定しても反転しない。2026-11-03 ちゆの浮遊で発覚)。
                 if (state.SpeedParameter == param)
                 {
+                    state.Speed *= value;
                     state.SpeedParameter = null;
                     changed = true;
                 }
                 if (state.CycleOffsetParameter == param)
                 {
+                    state.CycleOffset = value;
                     state.CycleOffsetParameter = null;
                     changed = true;
                 }
                 if (state.MirrorParameter == param)
                 {
+                    state.Mirror = value != 0f;
                     state.MirrorParameter = null;
                     changed = true;
                 }
 
-                var cleanedTransitions = CleanTransitions(state.Transitions, param, value, paramType, cutTransitions, ref changed);
+                var cleanedTransitions = CleanTransitions(state.Transitions, param, value, paramType, cutTransitions, ref changed, controller);
                 if (!ReferenceEquals(cleanedTransitions, state.Transitions))
                     state.Transitions = cleanedTransitions;
 
@@ -323,11 +328,11 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                     state.Behaviours = cleanedBehaviours;
             }
 
-            var cleanedAnyState = CleanTransitions(sm.AnyStateTransitions, param, value, paramType, cutTransitions, ref changed);
+            var cleanedAnyState = CleanTransitions(sm.AnyStateTransitions, param, value, paramType, cutTransitions, ref changed, controller);
             if (!ReferenceEquals(cleanedAnyState, sm.AnyStateTransitions))
                 sm.AnyStateTransitions = cleanedAnyState;
 
-            var cleanedEntry = CleanTransitions(sm.EntryTransitions, param, value, paramType, cutTransitions, ref changed);
+            var cleanedEntry = CleanTransitions(sm.EntryTransitions, param, value, paramType, cutTransitions, ref changed, controller);
             if (!ReferenceEquals(cleanedEntry, sm.EntryTransitions))
                 sm.EntryTransitions = cleanedEntry;
 
@@ -339,7 +344,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
 
                 if (sm.StateMachineTransitions.TryGetValue(childSm, out var childTransitions))
                 {
-                    var cleanedChildTransitions = CleanTransitions(childTransitions, param, value, paramType, cutTransitions, ref changed);
+                    var cleanedChildTransitions = CleanTransitions(childTransitions, param, value, paramType, cutTransitions, ref changed, controller);
                     if (!ReferenceEquals(cleanedChildTransitions, childTransitions))
                         sm.StateMachineTransitions = sm.StateMachineTransitions.SetItem(
                             childSm,
@@ -370,7 +375,8 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             float value,
             AnimatorControllerParameterType paramType,
             bool cutTransitions,
-            ref bool changed
+            ref bool changed,
+            VirtualAnimatorController controller
         )
             where T : VirtualTransitionBase
         {
@@ -401,13 +407,38 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 if (unsatisfiable)
                     continue;
 
+                // 条件が全部「常に成り立つ」で消えた遷移は、いつでも通る遷移。Unity は条件も Exit Time も無い遷移を
+                // 無視するので、常に true の Bool を条件に置いて残す (以前は遷移ごと消していて、ちゆの
+                // 「立ち → 立ち (反転)」が無くなり、反転を ON で固定しても立ちだけ反転しなかった。2026-11-03)。
                 var hasExitTime = transition is VirtualStateTransition st && st.ExitTime.HasValue;
                 if (filtered.Count == 0 && !hasExitTime)
-                    continue;
+                    filtered = ImmutableList.Create(new AnimatorCondition
+                    {
+                        parameter = EnsureAlwaysTrueParameter(controller),
+                        mode = AnimatorConditionMode.If,
+                    });
                 transition.Conditions = filtered;
                 result.Add(transition);
             }
             return localChanged ? result.ToImmutableList() : transitions;
+        }
+
+        /// <summary>常に true の Bool (書き手なし・EP なし = ローカルで既定値のまま)。</summary>
+        public const string AlwaysTrueParameter = "ReFrame/AlwaysTrue";
+
+        static string EnsureAlwaysTrueParameter(VirtualAnimatorController controller)
+        {
+            if (!controller.Parameters.ContainsKey(AlwaysTrueParameter))
+                controller.Parameters = controller.Parameters.SetItem(
+                    AlwaysTrueParameter,
+                    new AnimatorControllerParameter
+                    {
+                        name = AlwaysTrueParameter,
+                        type = AnimatorControllerParameterType.Bool,
+                        defaultBool = true,
+                    }
+                );
+            return AlwaysTrueParameter;
         }
 
         /// <summary>パラメーターを value に固定したとき、その条件が成立するか。</summary>
@@ -1470,13 +1501,14 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
             var removed = 0;
             foreach (var layer in controller.Layers)
                 if (layer?.StateMachine != null)
-                    removed += CleanTransitionsByFixedValueInStateMachine(layer.StateMachine, targets);
+                    removed += CleanTransitionsByFixedValueInStateMachine(layer.StateMachine, targets, controller);
             return removed;
         }
 
         static int CleanTransitionsByFixedValueInStateMachine(
             VirtualStateMachine sm,
-            List<(string Name, float Value, AnimatorControllerParameterType Type)> targets
+            List<(string Name, float Value, AnimatorControllerParameterType Type)> targets,
+            VirtualAnimatorController controller
         )
         {
             var removed = 0;
@@ -1490,7 +1522,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 foreach (var t in targets)
                 {
                     var changed = false;
-                    current = CleanTransitions(current, t.Name, t.Value, t.Type, false, ref changed);
+                    current = CleanTransitions(current, t.Name, t.Value, t.Type, false, ref changed, controller);
                 }
                 removed += transitions.Count - current.Count;
                 return current;
@@ -1515,7 +1547,7 @@ namespace jp.illusive_isc.ReFrame.Core.Editor
                 sm.EntryTransitions = entry;
 
             foreach (var child in sm.StateMachines)
-                removed += CleanTransitionsByFixedValueInStateMachine(child.StateMachine, targets);
+                removed += CleanTransitionsByFixedValueInStateMachine(child.StateMachine, targets, controller);
 
             return removed;
         }
